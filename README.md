@@ -247,3 +247,185 @@ Disposable을 호출해 스트림 처리를 취소하는 예제를 확인해 봅
 2. onNext 시그널에 대한 핸들러만 제공해 구독합니다.
 3. 이벤트를 받을 때까지 잠시 대기합니다.
 4. 내부적으로 구독을 취소하는 dispose 메서드를 호출합니다.
+
+### 사용자 정의 subscriber 구현하기
+
+기본 subscribe 메서드만으로 요구사항을 만족하지 못한다면 Subscriber 인터페이스를 직접 구현하고 스트림을 구독할 수 있습니다.
+
+```java
+@Test
+    public void p_141(){
+        Subscriber<String> subscriber = new Subscriber<String>() {
+            volatile Subscription subscription;
+
+            @Override
+            public void onSubscribe(Subscription s) {
+                subscription = s;
+                log.info("requesting 1 more element");
+                subscription.request(1);
+
+            }
+
+            @Override
+            public void onNext(String s) {
+                log.info("onNext : {}", s);
+                log.info("requesting 1 more element");
+                subscription.request(1);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                log.warn("onError : {}",t.getMessage());
+            }
+
+            @Override
+            public void onComplete() {
+                log.info("onComplete");
+            }
+        };
+        Flux<String> stream = Flux.just("Hello","World","!");
+        stream.subscribe(subscriber);
+    }
+```
+
+다음은 아래 코드 에 대한 설명입니다.
+
+1. 커스텀 구독자는 Publisher와 Subscriber를 바인딩하는 Subscription에 대한 참조를 가져야 합니다. 구독 및 데이터 처리가 다른 스레드에서 발생할 수 있으므로 모든 스레드가 Subscription 인스턴스에 대한 올바른 참조를 가질 수 있도록 volatile 키워드를 사용했습니다.
+2. 구독이 도착하면 Subscriber에 onSubscribe 콜백이 전달됩니다. 2.1에서 구독을 저장하고 초기 수요를 요청합니다.
+3. onNext 콜백에서 수신된 데이터를 기록하고 다음 원소를 요청합니다. 이 경우 배압 관리를 위해 간단한 pull 모델을 사용합니다.
+
+```java
+@Test
+    public void p_141(){
+        Subscriber<String> subscriber = new Subscriber<String>() {
+            volatile Subscription subscription;//1
+
+            @Override
+            public void onSubscribe(Subscription s) {//2
+                subscription = s;
+                log.info("requesting 1 more element");
+                subscription.request(1);
+
+            }
+
+            @Override
+            public void onNext(String s) {//3
+                log.info("onNext : {}", s);
+                log.info("requesting 1 more element");
+                subscription.request(1);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                log.warn("onError : {}",t.getMessage());
+            }
+
+            @Override
+            public void onComplete() {
+                log.info("onComplete");
+            }
+        };
+        Flux<String> stream = Flux.just("Hello","World","!");//4
+        stream.subscribe(subscriber);//5
+    }
+```
+
+위 코드를 실행하면 콘솔에 다음 내용이 출력됩니다.
+
+```java
+16:56:24.916 [main] INFO chap04.FluxTest - requesting 1 more element
+16:56:24.916 [main] INFO chap04.FluxTest - onNext : Hello
+16:56:24.917 [main] INFO chap04.FluxTest - requesting 1 more element
+16:56:24.917 [main] INFO chap04.FluxTest - onNext : World
+16:56:24.917 [main] INFO chap04.FluxTest - requesting 1 more element
+16:56:24.917 [main] INFO chap04.FluxTest - onNext : !
+16:56:24.917 [main] INFO chap04.FluxTest - requesting 1 more element
+16:56:24.919 [main] INFO chap04.FluxTest - onComplete
+```
+
+그러나 이 예제에서 구독을 정의하는 접근 방식은 올바르지 않습니다. 1차원적 코드 흐름이 깨지며 오류가 발생하기 쉽습니다. 가장 어려운 부분은 스스로 배압을 관리하고 가입자에 대한 모든 TCK (Technology Company Kit)요구사항을 위반했습니다.
+
+대신 리액터 프로젝트에서 제공하는 BaseSubscriber 클래스를 상속하는 것이 훨씬 더 좋은 방법입니다.
+
+```java
+@Test
+    public void p_143(){
+        Subscriber<String> subscriber = new MySubscriber<String>();
+        Flux<String> stream = Flux.just("Hello","World","!");
+        stream.subscribe(subscriber);
+    }
+```
+
+hookOnSubscribe() 및 hookOnNext(T) 메서드와 함께 hookOnError(Throwable), hookOnCancel(), hookOnComplete() 및 기타 소수의 메서드를 재정의 할 수 있습니다. 이런 접근은 세심한 라이프 사이클 관리가 필요한 리소스를 포함하는 경우 바람직할 수 있습니다. 예를 들면 외부 서비스에 연결하는 파일 핸들러 또는 웹소켓 연결을 가진 구독자의 경우입니다.
+
+```java
+@Slf4j
+public class MySubscriber<T> extends BaseSubscriber<T> {
+
+ public void hookOnSubscribe(Subscriber subscriber){
+     log.info("initail request for 1 element");
+     request(1);
+ }
+
+ public void hookOnNext(T value){
+     log.info("onNext: {}", value);
+     log.info("requesting 1 more element");
+     request(1);
+ }
+}
+```
+
+리액티브 시퀀스를 이용해 작업할 때는 스트림을 생성하고 소비하는 것 외에도 스트림을 완벽하게 변환하고 조작할 수 있어야 합니다. 리액터 프로젝트는 거의 모든 리액티브 타입 변환에 필요한 도구를 제공합니다.
+
+이런 도구는 다음과 같이 분류할 수 있습니다.
+
+- 기존 시퀀스 변환
+- 시퀀스 처리 과정을 살펴보는 메서드
+- Flux 시퀀스를 분할 또는 결합
+- 시간을다루는 작업
+- 데이터를 동기적으로 작업
+
+### 리액티브 시퀀스의 원소 매핑하기
+
+시퀀스를 변환하는 가장 자연스러운 방법은 모든 원소를 새 값으로 매핑하는 것 입니다. Flux 및 Mono는 자바 스트림 API의 map 연산자와 비슷한 동작을 하는 map연산자를 제공합니다. map 시그니쳐가 있는 함수는 원소를 하나씩 처리합니다. 물론 원소의 유형을 T에서 R로 변경하면 전체 시퀀스의 유형이 변경되므로 map 연산자 Flux<T>가 Flux<R>이 된 후에Mono<T>는 Mono<R>이 됩니다.
+
+```java
+   public final <E> Flux<E> cast(Class<E> clazz) {
+        Objects.requireNonNull(clazz, "clazz");
+        clazz.getClass();
+        return this.<E>map(clazz::cast);
+    }
+```
+
+index 연산자를 이용하면 시퀀스의 원소를 열거할 수 있습니다. 이제 Tuple2 클래스를 이용해야 합니다. 이는 표준 라이브러리에 없는 Tuple 타입 입니다. 연산자에서 자주 사용하는 Tuple2 -Tuple8 클래스 라이브러리와 함께 제공됩니다. `timestamp()` 연산자는 현재 타임스템프를 추가합니다. 따라서 다음 코드는 원소를 열거하고 시퀀스의 모든 원소에 타임스탬프를 첨부합니다.
+
+```java
+ @Test
+    public void p_145(){
+        Flux
+            .range(2018,5) //1
+                .timestamp()//2
+            .index() //3
+            .subscribe(e -> log.info("index : {}, ts: {}, value: {}",//4
+                    e.getT1(),//4.1
+                    Instant.ofEpochMilli(e.getT2().getT1()),//4.2
+                    e.getT2().getT2()//4.3s
+            ));
+    }
+```
+
+1. range 연산자로 데이터(2018 ~ 2022)를 생성합니다. 이 연산자는 Flux<Integer> 타입의 시퀀스를 반환합니다.
+2. timestamp 연산자를 사용해 현재 타임스탬프를 첨부합니다. 이제 시퀀스에는 `Flux<Tuple2<Long, Integer>>` 타입이 들어 있습니다.
+3. index연산자를 열거형으로 전환합니다. 이제 시퀀스에는 `Flux<Tuple2<Long, Tuple2<Long, Integer>>>` 타입이 들어가 있습니다.
+4. 시퀀스를 구독하고 각 원소에 대한 로그 메시지를 남깁니다
+    1. `e.getT1()` 호출은 인덱스를 반환합니다.
+    2. `e.getT2().getT1()` 호출은 타임스탬프를 반환하고 Instant 클래스의 매개변수로 사용해 사람이 읽을 수 있는 시간을 출력합니다.
+    3. `e.getT2().getT2()` 호출은 실제 값을 반환합니다.
+
+```java
+17:22:56.898 [main] INFO chap04.ElementMapTest - index : 0, ts: 1970-01-01T00:00:02.018Z, value: 2018
+17:22:56.909 [main] INFO chap04.ElementMapTest - index : 1, ts: 1970-01-01T00:00:02.019Z, value: 2019
+17:22:56.909 [main] INFO chap04.ElementMapTest - index : 2, ts: 1970-01-01T00:00:02.020Z, value: 2020
+17:22:56.909 [main] INFO chap04.ElementMapTest - index : 3, ts: 1970-01-01T00:00:02.021Z, value: 2021
+17:22:56.909 [main] INFO chap04.ElementMapTest - index : 4, ts: 1970-01-01T00:00:02.022Z, value: 2022
+```

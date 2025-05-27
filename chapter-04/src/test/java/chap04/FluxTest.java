@@ -1,5 +1,6 @@
 package chap04;
 
+import chap04.dto.MySubscriber;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.Test;
 import org.reactivestreams.Subscriber;
@@ -47,11 +48,10 @@ public class FluxTest {
     @Test
     public void p_141(){
         Subscriber<String> subscriber = new Subscriber<String>() {
-            volatile Subscription subscription;
-
+            volatile Subscription subscription;//1
 
             @Override
-            public void onSubscribe(Subscription s) {
+            public void onSubscribe(Subscription s) {//2
                 subscription = s;
                 log.info("requesting 1 more element");
                 subscription.request(1);
@@ -59,7 +59,7 @@ public class FluxTest {
             }
 
             @Override
-            public void onNext(String s) {
+            public void onNext(String s) {//3
                 log.info("onNext : {}", s);
                 log.info("requesting 1 more element");
                 subscription.request(1);
@@ -75,6 +75,12 @@ public class FluxTest {
                 log.info("onComplete");
             }
         };
+        Flux<String> stream = Flux.just("Hello","World","!");//4
+        stream.subscribe(subscriber);//5
+    }
+    @Test
+    public void p_143(){
+        Subscriber<String> subscriber = new MySubscriber<String>();
         Flux<String> stream = Flux.just("Hello","World","!");
         stream.subscribe(subscriber);
     }

@@ -1,5 +1,6 @@
 package chap04.subscriber;
 
+import chap04.dto.MySubscriber;
 import chap04.flux.FluxExam;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Subscriber;
@@ -41,4 +42,5 @@ public class SubscriberExam {
         Flux<String> stream = Flux.just("Hello","World","!");
         stream.subscribe();
     }
+
 }
