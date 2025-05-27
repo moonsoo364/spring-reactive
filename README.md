@@ -429,3 +429,30 @@ index 연산자를 이용하면 시퀀스의 원소를 열거할 수 있습니�
 17:22:56.909 [main] INFO chap04.ElementMapTest - index : 3, ts: 1970-01-01T00:00:02.021Z, value: 2021
 17:22:56.909 [main] INFO chap04.ElementMapTest - index : 4, ts: 1970-01-01T00:00:02.022Z, value: 2022
 ```
+
+### 리액티브 시퀀스 필터링하기
+
+리액터 프로젝트에는 다음과 같이 필터링을 위한 모든 종류의 연산자가 포함돼 있습니다.
+
+- filter 연산자는 조건을 만족하는 요소만 통과시킵니다.
+- ignoreElement 연산자는 Mono<T>를 반환하고 어떤 원소도 통과시키지 않습니다. 결과 시퀀스는 원본 시퀀스가 종료된 후에 종료됩니다.
+- 라이브러리는 첫 번째 n을 제외한 모든 원소를 무시하는 `take(n)` 연산자로 유입되는 원소의 개수를 제한할 수 있습니다.
+- takeLast() 는 스트림의 마지막 원소만 반환합니다.
+- takeUntil(Predicate)는 조건이 만족할 때 까지 원소를 전달합니다.
+- elementAt(n)은 시퀀스의 n번째 원소만 가져옵니다.
+- single 연산자는 소스에서 단일 항목을 내보냅니다. 빈 소스에 대해 NoSuchElementException 오류를 발생시키고, 복수의 요소를 가지는 소스의 경우는 `IndexOutofBoundException`을 발생시킵니다.
+- `skip(Duration)` 또는 `take(Duration)` 연산자를 사용해 양뿐만 아니라 특정 시간까지 원소를 가져오거나 건너뛸 수 있습니다.
+- `takeUnitOther(Publisher)` 또는 `skipUtilOther(Publisher)` 를 이용해 특정 스트림에서 메시지가 도착할 때까지 원소를 건너뛰거나 가져올 수 있습니다.
+
+### 리액티브 시퀀스 수집하기
+
+리스트의 모든 원소를 수집하고 결과를 `Flux.collectList()` 및 `Flux.collectSortedList()` 를 사용해 Mono타입 스트림으로 처리할 수 있습니다. 마지막 원소에 이르면 해당 원소를 수지할 뿐만 아니라 정렬 작업도 수행합니다.
+
+```java
+@Test
+    public void p_147(){
+        Flux.just(1,6,2,8,3,1,5,1)
+                .collectSortedList(Comparator.reverseOrder())
+                .subscribe(System.out::println);
+    }
+```

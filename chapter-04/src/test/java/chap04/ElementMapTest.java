@@ -5,6 +5,7 @@ import org.junit.Test;
 import reactor.core.publisher.Flux;
 
 import java.time.Instant;
+import java.util.Comparator;
 
 @Slf4j
 public class ElementMapTest {
@@ -20,5 +21,11 @@ public class ElementMapTest {
                     Instant.ofEpochMilli(e.getT2().getT1()),//4.2
                     e.getT2().getT2()//4.3
             ));
+    }
+    @Test
+    public void p_147(){
+        Flux.just(1,6,2,8,3,1,5,1)
+                .collectSortedList(Comparator.reverseOrder())
+                .subscribe(System.out::println);
     }
 }
