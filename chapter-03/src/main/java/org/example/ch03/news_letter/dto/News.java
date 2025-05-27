@@ -1,4 +1,4 @@
-package org.ch03.news_letter.dto;
+package org.example.ch03.news_letter.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.sun.istack.NotNull;

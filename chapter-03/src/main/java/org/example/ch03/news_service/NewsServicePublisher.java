@@ -1,8 +1,8 @@
-package org.ch03.news_service;
+package org.example.ch03.news_service;
 
 import com.mongodb.reactivestreams.client.MongoClient;
-import org.ch03.news_letter.dto.News;
-import org.ch03.news_letter.dto.NewsLetter;
+import org.example.ch03.news_letter.dto.News;
+import org.example.ch03.news_letter.dto.NewsLetter;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 

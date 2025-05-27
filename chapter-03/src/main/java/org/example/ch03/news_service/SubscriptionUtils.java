@@ -1,4 +1,4 @@
-package org.ch03.news_service;
+package org.example.ch03.news_service;
 
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 

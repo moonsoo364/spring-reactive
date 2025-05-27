@@ -1,9 +1,6 @@
-package org.ch03.news_letter.dto;
+package org.example.ch03.news_letter.dto;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NonNull;
+import lombok.*;
 import lombok.experimental.Wither;
 
 import java.util.Collection;
@@ -12,9 +9,10 @@ import java.util.Collection;
 @Builder(builderClassName = "NewsLetterTemplate", builderMethodName = "template")
 @AllArgsConstructor
 @Wither
+@NoArgsConstructor(force = true)
 public class NewsLetter {
     private final @NonNull String title;
     private final String recipient;
     private final @NonNull Collection<News> digest;
-
 }
+

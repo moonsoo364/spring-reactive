@@ -1,12 +1,11 @@
-package org.ch03.news_service;
+package org.example.ch03.news_service;
 
-import org.ch03.news_letter.dto.News;
-import org.ch03.news_letter.dto.NewsLetter;
+
+import org.example.ch03.news_letter.dto.News;
+import org.example.ch03.news_letter.dto.NewsLetter;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-import org.rpis5.chapters.chapter_03.news_service.dto.News;
-import org.rpis5.chapters.chapter_03.news_service.dto.NewsLetter;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -19,7 +18,7 @@ public class NewsPreparationOperator implements Publisher<NewsLetter> {
     final Publisher<? extends News> upstream;
     final String title;
 
-    public NewsPreparationOperator(Publisher<? extends News> upstream, String title) {
+    public NewsPreparationOperator(DBPublisher upstream, String title) {
         this.upstream = upstream;
         this.title = title;
     }

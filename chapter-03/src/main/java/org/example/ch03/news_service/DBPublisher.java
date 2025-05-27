@@ -1,13 +1,12 @@
-package org.ch03.news_service;
+package org.example.ch03.news_service;
 
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Sorts;
 import com.mongodb.reactivestreams.client.FindPublisher;
 import com.mongodb.reactivestreams.client.MongoCollection;
-import org.ch03.news_letter.dto.News;
+import org.example.ch03.news_letter.dto.News;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
-import org.rpis5.chapters.chapter_03.news_service.dto.News;
 
 import java.util.Date;
 
