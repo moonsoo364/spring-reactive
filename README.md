@@ -513,4 +513,598 @@ reduce 연산자는 최종 결과 하나만 출력으로 내보냅니다. 그러
     }
 ```
 
-최종 결과는 이전과 동일하게 15입니다. 하지만 이번에는 중간과정도 모두 출력됐습니다. 즉, 진행 중인 이벤트에 대한 정보가 필요한 애플리케이션에서 scan 연산자를 유용하게 쓸 수 있습니다. 예를 들어 다음과 같이 스트림의 이동 평균을 계산할 수 있습니다.\
+최종 결과는 이전과 동일하게 15입니다. 하지만 이번에는 중간과정도 모두 출력됐습니다. 즉, 진행 중인 이벤트에 대한 정보가 필요한 애플리케이션에서 scan 연산자를 유용하게 쓸 수 있습니다. 예를 들어 다음과 같이 스트림의 이동 평균을 계산할 수 있습니다.
+이 코드에 대한 설명은 다음과 같습니다.
+
+1. 이동 평균 범위를 정의합니다.(최근 다섯 가지 이벤트에 관심이 있다고 가정해 봅시다.)
+2. range 연산자로 데이터를 생성합니다.
+3. index 연산자를 사용해 각 원소에 인덱스를 부여할 수 있었습니다.
+4. scan 연산자를 사용해 최근 5개의 원소를 컨테이너로 수집합니다. 여기서 인덱스는 컨테이너의 위치를 계산하는 데 사용됩니다. 단계마다 업데이트된 컨테이너를 반환합니다.
+5. 스트림 시작 부분의 일부 원소를 건너뛰고 이동 평균에 대한 데이터를 수집합니다.
+6. 이동 평균의 값을 계산하기 위해서 컨테이너 내부 원소의 합을 크기로 나눕니다.
+7. 물론 값을 받기 위해 데이터를 구독합니다.
+
+```java
+@Test
+    public void p_150_3(){
+        int bucketSize = 5;// 1
+        Flux.range(1, 500)//2
+                .index()//3
+                .scan(//4
+                        new int[bucketSize],//4.1
+                        (acc,elem) ->{
+                            acc[(int)(elem.getT1() % bucketSize)] = elem.getT2();//4.2
+                            return acc;//4.3
+                        })
+                .skip(bucketSize)//5
+                .map(array-> Arrays.stream(array).sum()*1.0/bucketSize)//6
+                .subscribe(av->log.info("Running average: {}",av));//7
+    }
+```
+
+```java
+08:51:43.253 [main] INFO chap04.ElementMapTest - Running average: 3.0
+08:51:43.255 [main] INFO chap04.ElementMapTest - Running average: 4.0
+08:51:43.255 [main] INFO chap04.ElementMapTest - Running average: 5.0
+```
+
+Mono 및 Flux에는 then, thenMany, thenEmpty 연산자가 있으며, 이들 연산자는 상위 스트림이 완료될 때 동시에 완료됩니다. 이들 연산자는 들어오는 원소를 무시하고 완료 또는 오류 신호만 내보냅니다. 이러한 연산자는 상위 스트림 처리가 완료되는 즉시 새 스트림을 기동하는 데 유용하게 사용할 수 있습니다.
+
+```java
+@Test
+    public void p_151(){
+        Flux.just(1, 2, 3)
+                .thenMany(Flux.just(4,5))
+                .subscribe(e -> log.info("onNext {}", e));
+    }
+```
+
+subscribe 메서드의 람다는 1, 2, 3이 스트림에서 생성되고 처리되더라도 4와 5만 받습니다.
+
+```java
+09:02:04.739 [main] INFO chap04.ElementMapTest - onNext 4
+09:02:04.740 [main] INFO chap04.ElementMapTest - onNext 5
+```
+
+### 리액티브 스트림 조합하기
+
+리액터 프로젝트를 사용하면 여러 개의 입력 스트림을 하나의 출력 스트림으로 결합할 수 있습니다. 연산자의 버전은 여러 가지지만, 기본적으로 다음과 같은 동작을 수행합니다.
+
+- concat 연산자는 수신된 원소를 모두 연결해 다운스트림으로 전달합니다. 연산자가 두 개의 스트림을 연결하면 처음에는 첫 번째 스트림의 모든 원소를 소비한 후 다시 보내고 두 번째 스트림에 대해 동일한 작업을 수행합니다.
+- merge 연산자는 업스트림 시퀀스의 데이터를 하나의 다운스트림 시퀀스로 병합합니다. concat 연산자와 달리 업스트림 소스는 각각 별개로 구독됩니다.
+- zip 연산자는 모든 업스트림을 구독하고 모든 소스가 하나의 원소를 내보낼 때까지 대기한 다음, 수신된 원소를 출력 원소로 결합합니다.
+  리액터에서 zip연산자는 리액티브 게시자뿐만 아니라 Iterable 컨테이너에서도 동작할 수 있습니다. 이를 zipWithIterable 연산자를 사용할 수 있습니다.
+- combineLatest 연산자는 zip 연산자와 비슷하게 작동합니다. 그러나 최소한 하나의 업스트림 소스가 값을 내면 바로 새 값을 생성합니다.
+
+```java
+@Test
+    public void p_152(){
+        Flux.concat(
+                Flux.range(1, 3),
+                Flux.range(4, 2),
+                Flux.range(6, 5)
+                ).subscribe(e->log.info("onNext: {}",e))
+                ;
+    }
+```
+
+앞의 코드는 1에서 10까지 값을 생성합니다. ([1, 2, 3]+[4, 5]+[6, 7, 8, 9, 10])
+
+### 스트림 내의 원소 일괄 처리하기
+
+리액터 프로젝트는 두 가지 방법으로 스트림(Flux <T>)에 대한 일괄 처리를 지원합니다.
+
+- List와 같은 컨테이너를 이용한 버퍼링. 출력되는 스트림의 타입은 `Flux<List<T>>` 입니다.
+- `Flux<Flux<T>>` 와 같은 형태로 스트림을 스트림으로 윈도우잉. 이 경우 스트림 내부 원소는 값이 아니라 다른 스틀미이 되므로 별도의 추가적인 처리를 할 수 있습니다.
+- `Flux<GroupedFlux<K,T>` 유형의 스트림으로 그룹화(Grouping), 각각의 새로운 키는 새로운 GroupFlux 인스턴스를 가르키고 해당 키를 가진 스트림 원소는 GroupFlux 클래스의 인스턴스를 통해 스트림에 추가됩니다.
+
+버퍼링 및 윈도우 처리는 다음 경우에 발생할 수 있습니다.
+
+- 처리된 원소의 수에 기반 10개의 원소를 처리할 때마다 신호를 보내야 할 때
+- 시간 기반. 5분마다 신호를 보내야 할 때
+- 특정 로직에 기반, 새로운 짝수를 전달받기 전에.
+- 실행을 제어하는 다른 Flux에서 전달된 이벤트 기반
+
+크기가 4인 리스트에 정수 원소를 버퍼링해 봅시다.
+
+```java
+@Test
+    public void p_153_1(){
+        Flux.range(1, 13)
+                .buffer(4)
+                .subscribe(e -> log.info("onNext: {}", e));
+    }
+```
+
+이 코드의 실행 결과는 다음과 같습니다.
+
+```java
+09:19:55.303 [main] INFO chap04.ElementMapTest - onNext: [1, 2, 3, 4]
+09:19:55.303 [main] INFO chap04.ElementMapTest - onNext: [5, 6, 7, 8]
+09:19:55.303 [main] INFO chap04.ElementMapTest - onNext: [9, 10, 11, 12]
+09:19:55.303 [main] INFO chap04.ElementMapTest - onNext: [13]
+```
+
+buffer 연산자는 여러개의 이벤트를 묶어서 이벤트 컬렉션을 만들어냅니다. 이 컬랙션은 다운스트림 연산자를 위한 이벤트가 됩니다. buffer 연산자는 하나의 원소만 가진 많은 작은 요청 대신에 컬렉션을 이용해 요청 횟수를 줄이는 수 있습니다. 예를 들어 스트림 원소를 데이터베이스에 하나씩 삽입하는 대신 몇 초 동안 버퍼링하여 일괄 삽입을 수행할 수 있습니다. 물론 이것은 데이터 정합성에 대한 요구 사항을 위배하지 않는 경우에만 해당합니다.
+
+window 연산자를 학습하기 위해 원소가 소수 일 때마다 숫자 시퀀스를 분할해 보겠습니다. 이를 위해 window 연산자의 windowUntil 변형을 사용할 수 있습니다. 코드는 다음과 같습니다.
+
+```java
+@Test
+    public void p_153_2(){
+        Flux<Flux<Integer>> windowedFlux = Flux.range(101,20)//1
+                .windowUntil(ElementMapTest::isPrime, true);//2
+        windowedFlux.subscribe(window -> //3
+                window.collectList()//4
+                .subscribe(e -> log.info("window: {}",e))//5
+        );
+    }
+
+    private static boolean isPrime(int n) {
+        if (n < 2) return false;
+        for (int i = 2; i <= Math.sqrt(n); i++) {
+            if (n % i == 0) return false;
+        }
+        return true;
+    }
+```
+
+1. 101부터 20까지 정수를 생성합니다.
+2. 여기에서는 숫자가 소수일 때마다 스트림 원소를 분할합니다. windowUtil 연산자의 두 번째 인수를 이용해 소수를 발견했을 때 해당 원소 앞에서 스트림을 분할할지, 해당 원소 뒤에서 스트림을 분할할지를 정의합니다. 앞의 코드에서 `true` 로 매개변수를 정의했고 이는 새로운 소수가 나타나면 즉시 분할합니다. 결과 스트림은 `Flux<Flux<Integer>>` 타입입니다.
+3. 2의 결과인 windowedFlux 스트림을 구독할 수 있습니다. 그러나 windowedFlux 스트림의 각 원소는 자체적으로 리액티브 스트림입니다. 그래서 각 원소에 대해 여기서는 또 다른 리액티브 변환 처리를 합니다.
+4. 분할된 스트림에 대해 collectList 연산자로 원소를 수집해 `Mono<List<Integer>>` 타입으로 컬렉션화 해서 개수를 축소합니다.
+5. 각 내부에 Mono에 대해 별도의 구독을 만들고 수신된 이벤트를 로그로 출력합니다.
+
+첫 번째 슬라이스는 비어 있습니다. 이는 원본 스트림을 시작하면 새로운 슬라이스를 만들고, 첫 번째 원소가 101이기 때문입니다.(`onComplete` 시그널 발생)
+
+buffer연산자는 버퍼가 닫힐 때만 컬렉션을 내보내는 반면, window 연산자는 원소가 도착하자마자 이벤트를 전달하므로 더 빨리 반응하고 복잡한 워크플로를 구현할 수있습니다.
+
+```java
+09:30:31.659 [main] INFO chap04.ElementMapTest - window: []
+09:30:31.660 [main] INFO chap04.ElementMapTest - window: [101, 102]
+09:30:31.660 [main] INFO chap04.ElementMapTest - window: [103, 104, 105, 106]
+09:30:31.660 [main] INFO chap04.ElementMapTest - window: [107, 108]
+09:30:31.660 [main] INFO chap04.ElementMapTest - window: [109, 110, 111, 112]
+09:30:31.660 [main] INFO chap04.ElementMapTest - window: [113, 114, 115, 116, 117, 118, 119, 120]
+```
+
+groupBy 연산자를 사용해 리액티브 스트림의 원소를 몇 가지 기준으로 그룹화할 수 있습니다. 다음은 홀수와 짝수로 정수 시퀀스를 나눠서 각 그룹의 마지막 두 원소만 확인하는 코드입니다.
+
+```java
+@Test
+    public void p_154(){
+        Flux.range(1,7)
+                .groupBy(e -> e % 2 == 0 ? "Even" : "Odd")//1
+                .subscribe(groupFlux -> groupFlux //2
+                        .scan(//3
+                                new LinkedList<>(),//4
+                                (list, elem) -> {//4.1
+                                    list.add(elem);//4.2
+                                    if(list.size() > 2){
+                                        list.remove(0);//4.3
+                                    }
+                                    return list;
+                                })
+                                .filter(arr -> !arr.isEmpty())//5
+                                .subscribe(data -> {//6
+                                    log.info("{}: {}",groupFlux.key(), data);
+                                })
+                        );
+    }
+```
+
+1. 숫자 시퀀스를 생성합니다.
+2. groupBy, 연산자를 사용해 홀수, 짝수를 구분합니다. `Flux<GroupedFluex<String, Integer>>` 타입의 스트림을 반환합니다.
+3. 여기서 메인 Flux를 구독하고 각각의 GroupedFlux에 대해 scan 연산자를 적용합니다.
+4. scan 연산자는 비어있는 리스트로 시작합니다. GroupedFlux의 각 원소는 리스트에 추가되고 (4.2) 리스트의 크기가 2보다 큰 경우 가장 오래된 원소를 제거합니다.(4.3)
+5. scan 연산자는 우선 비어 있는 리스트를 전파한 다음, 다시 계산한 값을 전파합니다. 이 경우 필터 연산자를 사용하면 scan 결과에서 비어 있는 결과를 제거할 수 있습니다.
+6. 마지막으로 GroupedFlux를 개별적으로 구독하고 scan 연산자가 내보낸 결과를 표시합니다.
+
+```java
+09:49:28.910 [main] INFO chap04.ElementMapTest - Odd: [1]
+09:49:28.911 [main] INFO chap04.ElementMapTest - Even: [2]
+09:49:28.911 [main] INFO chap04.ElementMapTest - Odd: [1, 3]
+09:49:28.912 [main] INFO chap04.ElementMapTest - Even: [2, 4]
+09:49:28.912 [main] INFO chap04.ElementMapTest - Odd: [3, 5]
+09:49:28.912 [main] INFO chap04.ElementMapTest - Even: [4, 6]
+09:49:28.912 [main] INFO chap04.ElementMapTest - Odd: [5, 7]
+```
+
+### flatMap, concatMap, flatMapSequential 연산자
+
+flatMap 연산자는 논리적으로 map과 flatten의 2가지 작업으로 구성됩니다.(merge  연산자와 비슷합니다.) flatMap연산자의 map파트는 들어오는 각 원소를 리택티브스트림(`T  → Flux<R>` 로 변환하고 Flatten 파트는 생성된 모든 리액티브 시퀀스를 R 타입의 원소를 통과시키는 새로운 리액터 시퀀스로 병합합니다.
+
+리액터 프로젝트는 flatMap 연산자의 다양한 변형을 제공합니다. 연산자 오버라이딩뿐만 아니라, flatMapSequential 연산자와 concatMap 연산자도 제공합니다. 이 세 연산자는 다음과 같은 몇 가지 차이점이 있습니다.
+
+- 연산자가 내부 스트림을 하나씩 구독하는 지 여부(flatMap, flatMapSequential 연산자는 하나씩 구독합니다. concatMap은 하위 스트림을 생성하고 구독하기 전에 스트림 내부 처리가 완료되기를 기다립니다.)
+- 연산자가 생성된 원소의 순서를 유지하는 지 여부(concatMap은 원본과 동일한 순서를 유지하고 flatMapSequential 연산자는 큐에 넣어 순서를 역순으로 유지하지만, flatMap 연산자는 원래 순서를 유지하지는 않습니다.)
+- 연산자가 다른 하위 스트림의 원소를 끼워 넣을 수 있는 지 여부(flatMap 연산자는 허용. concatMap 및 flatMapSequential은 허용하지 않음)
+
+사용자들이 좋아하는 책을 확인하는 알고리즘을 구현해 보겠습니다. 사용자가 좋아하는 책을 질의하는 서비스는 다음과 같습니다.
+
+```java
+@Test
+    public void p_157() throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        Flux.just("user-1", "user-2", "user-3")
+                .flatMap(u -> requestBooks(u)
+                        .map(b->u+"/"+b)
+                ).subscribe(r->log.info("onNext: {}",r));
+        latch.await(1, TimeUnit.SECONDS); // 최대 1초까지 기다림
+    }
+   static public Flux<String> requestBooks(String user){
+       Random random = new Random();
+       return Flux.range(1, random.nextInt(3) + 1)//1
+               .map(i -> "book-" + i)//2
+               .delayElements(Duration.ofMillis(3));//3
+   }
+```
+
+1. 서비스가 임의의 정수 값을 생성합니다.
+2. 그런 다음 각 번호를 책 제목에 매핑합니다.
+3. 서비스가 데이터베이스와의 통신을 시뮬레이션하기 위해 일정 시간 지연합니다.
+
+```java
+10:22:34.646 [parallel-1] INFO chap04.ElementMapTest - onNext: user-1/book-1
+10:22:34.647 [parallel-1] INFO chap04.ElementMapTest - onNext: user-2/book-1
+10:22:34.647 [parallel-1] INFO chap04.ElementMapTest - onNext: user-3/book-1
+10:22:34.661 [parallel-5] INFO chap04.ElementMapTest - onNext: user-3/book-2
+10:22:34.661 [parallel-5] INFO chap04.ElementMapTest - onNext: user-2/book-2
+10:22:34.677 [parallel-6] INFO chap04.ElementMapTest - onNext: user-2/book-3
+10:22:34.677 [parallel-6] INFO chap04.ElementMapTest - onNext: user-3/book-3
+```
+
+결과를 통해 flatMap 연산자의 출력이 다른 스레드의 구독자 핸들러에 도착한다는 것을 알 수 있습니다. 그러나 리액티브 스트림 스펙은 발생 순서를 보장합니다. 따라서 원소가 다른 스레드에 도착할 수 있는 경우에도 원소가 동시에 도착하지 않습니다.
+
+또한 라이브러리는 flatMapDelayError, flatMapSequentialDelayError, concatMapDelayError 연산자를 사용해 onError 시그널을 지연시킬 수 있습니다. 이 외에도 concatMapIterable 연산자는 변환 함수가 리액티브 스트림 대신 각 원소에 대한 iterator를 생성할 때 유사한 연산을 허용합니다. 이 경우 끼워 넣기는 발생하지 않습니다.
+
+flatMap 연산자(및 그 변형 연산자)는 한 줄의 코드로 복잡한 워크플로를 구현할 수 있으므로 함수형 프로그래밍 및 리액티브 프로그래밍 모두에서 중요합니다.
+
+### 샘플링하기
+
+처리량이 많은 시나리오의 경우 샘플링 기술을 적용해 일부 이벤트만 처리하는 것이 좋습니다. 리액터에는 sample 및 sampleTimeout 연산자가 있습니다. 이 연산자를 사용하면 시퀀스는 특정 기간 내 가장 최근에 본 값을 주기적으로 출력할 수 있습니다. 다음과 같은 코드가 있다고 합시다.
+
+```java
+@Test
+    public void p_158() throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+
+        Flux.range(1, 100)
+                .delayElements(Duration.ofMillis(1))
+                .sample(Duration.ofMillis(20))
+                .doOnNext(e -> log.info("onNext : {}", e))
+                .doOnComplete(latch::countDown)
+                .subscribe();
+
+        // 2초 정도 대기 (데이터 양과 delay에 따라 조절)
+        latch.await(2, TimeUnit.SECONDS);
+    }
+```
+
+프로그램 실행 시에 밀리초 단위로 숫자를 순차적으로 생성하더라도 구독자는 원하는 한도 내에서 이벤트의 일부만 수신한다는 것을 알 수 있습니다. 이러한 접근 방식을 이용하면 모든 이벤트가 필요하지 않은 경우 직접 처리량을 제한할 수 있습니다.
+
+```java
+10:43:44.470 [parallel-1] INFO chap04.ElementMapTest - onNext : 6
+10:43:44.486 [parallel-1] INFO chap04.ElementMapTest - onNext : 7
+10:43:44.518 [parallel-1] INFO chap04.ElementMapTest - onNext : 9
+```
+
+### 리액티브 시퀀스를 블로킹 구조로 전환하기
+
+리액터 프로젝트 라이브러리는 리액티브 시퀀스를 블로킹 구조로 변환하기 위한 API를 제공합니다. 리액티브 애플리케이션에서 블로킹 처리를 해서는 안 되지만, 상위 API에서 필요로 하는 경우도 있습니다. 스트림을 차단하고 결과를 동기적으로 생성하기 위한 다음과 같은 옵션이 있습니다.
+
+- tolerable 메서드는 Flux를 블로킹 Iterable를 변환합니다.
+- toStream 메서드는 리액티브 Flux를 블로킹 스트림 API로 변환합니다.
+- blockFirst 메서드는 업스트림이 첫 번째 값을 보내거나 완료될 때까지 현재 스레드를 차단합니다.
+- blockLast 메서드는 업스트림이 마지막 값을 보내거나 완료될 때까지 현재 스레드를 차단합니다. onError 신호의 경우 차단된 스레드에 예외가 발생합니다.
+
+blockFirst 및 blockLast 연산자는 스레드 차단 기간을 설정할 수 있는 추가 매개변수를 받을 수도 있습니다. 그렇게 하면 스레드가 무한대로 차단되지 않습니다. 또한 toIterable 및 toStream 메서드를 사용하면 클라이언트 코드가 Iterable 또는 Stream을 차단하는 것보다 빨리 도착한 이벤트를 큐에 저장할 수 있습니다.
+
+### 시퀀스를 처리하는 동안 처리 내역 살펴보기
+
+프로세스 파이프라인의 중간에 있는 각 원소나 특정 시그널을 처리해야 하는 경우가 있습니다. 리액터 프로젝트는 이러한 요구 사항을 충족하기 위해 다음과 같은 방법을 제공합니다.
+
+- `doOnNext(Consumer <T>)` 는 Flux나 Mono의 각 원소에 대해 어떤 액션을 수행할 수 있게 해줍니다.
+- `doOnComplete()` 및 `doOnError(Throwable)` 은 대응 이벤트 발생 시에 호출됩니다.
+- `doOnSubscribe(Consumer<Subscription>)` , `doOnRequest(LongConsumer)` , `doOnCancel(Runnable)` 을 사용하면 구독 라이프 사이클 이벤트에 대응할 수 있습니다.
+- `doOnTerminate(Runnable)` 는 스트림 종료 시에 종료의 원인과 관계없이 기동됩니다.
+
+또한 Flux 및  Mono는 리액티브 스트림 도메인의 `onSubscribe` , `onNext` , `onError` , `onComplete` 를 포함한 모든 신호를 처리하는 `doOnEach(Consumer<Signal>)` 메서드를 제공합니다.
+
+```java
+@Test
+    public void p_160_1(){
+        Flux.just(1, 2, 3)
+                .concatWith(Flux.error(new RuntimeException("conn error")))
+                .doOnEach(s -> log.info("signal: {}", s))
+                .subscribe();
+    }
+```
+
+이 코드에서는 concat 연산자를 사용하는 래퍼인 concatWith 연산자를 사용합니다. 이 코드는 다음과 같은 출력을 생성합니다.
+
+```java
+11:02:52.816 [main] INFO chap04.ElementMapTest - signal: doOnEach_onNext(1)
+11:02:52.817 [main] INFO chap04.ElementMapTest - signal: doOnEach_onNext(2)
+11:02:52.817 [main] INFO chap04.ElementMapTest - signal: doOnEach_onNext(3)
+11:02:52.820 [main] INFO chap04.ElementMapTest - signal: onError(java.lang.RuntimeException: conn error)
+```
+
+이 예 에서는 onNext 시그널뿐만 아니라 onError 시그널도 모두 수신했습니다.
+
+### 데이터와 시그널 변환하기
+
+때로는 데이터가 아니라 시그널을 이용해 스트림을 처리하는 것이 유용할 때가 있습니다. 데이터 스트림을 시그널 스트림으로 변환하고 다시 되돌리기 위해 Flux 및 Mono는 materialize 및 dematerialize 메서드를 제공합니다. 예를 들면 다음과 같습니다.
+
+```java
+ @Test
+    public void p_160_2(){
+        Flux.range(1, 3)
+                .doOnNext(e -> log.info("data : {}",e))
+                .materialize()
+                .doOnNext(e -> log.info("signal: {}", e))
+                .dematerialize()
+                .collectList()
+                .subscribe(r->log.info("result: {}",r));
+    }
+
+}
+```
+
+여기에서 시그널 스트림을 처리할 때 doOnNext 메서드는 데이터 있는 onNext 이벤트만 아니라 onComplete 이벤트를 Signal 클래스로 래핑합니다. 이 접근 방식은 동일한 상속 구조 내에 존재하는 onNext, onError 및 onComplete 이벤트를 처리할 수 있습니다.
+
+```java
+11:09:03.659 [main] INFO chap04.ElementMapTest - data : 3
+11:09:03.659 [main] INFO chap04.ElementMapTest - signal: onNext(3)
+11:09:03.659 [main] INFO chap04.ElementMapTest - signal: onComplete()
+11:09:03.659 [main] INFO chap04.ElementMapTest - result: [1, 2, 3]
+```
+## 코드를 통해 스트림 만들기
+배열 future, 블로킹 요청을 이용해 리액티브 스트림을 만드는 방법은 이미 다뤘습니다. 그러나 때로는 스트림 내에서 시그널을 생성하거나 객체의 라이프 사이클을 리액티브 스트림의 라이프 사이클에 바인딩하는 것 보다 복잡한 방법이 필요합니다. 이 절에서는 리액터를 이용해 스트림을 프로그래밍 방식으로 생성하는 법을 설명합니다.
+
+### 팩토리 메서드 push 와 create
+
+push 팩토리 메서드를 사용하면 단일 스레드 생성자를 적용해 Flux 인스턴스를 프로그래밍 방식으로 생성할 수 있습니다. 이 접근법은 배압과 cancel에 대한 걱정 없이 비동기,  단일 스레드, 다중 값을 가지는 API를 적용하는 데 유용합니다. 구독자가 부하를 처리할 수 없는 경우 배압과 취소는 모두 큐를 이용해 처리됩니다.
+
+```java
+    @Test
+    public void p_162(){
+        Flux.push(emitter-> IntStream.range(2000, 3000)//1
+                .forEach(emitter::next))//1.1
+                .delayElements(Duration.ofMillis(1))//2
+                .subscribe(e -> log.info("onNext: {}",e));//3
+    }
+```
+
+1. push 팩토리 메서드를 사용해 기존 API에 리액티브 패러다임을 적용합니다. 단순화를 위해 여기서는 자바 스트림 API를 사용해 1000개의 정수를 생성하고(1.1) FluxSink 타입으로 전송합니다.(1.2) push 메서드 내에서는 배압과 취소에 신경 쓰지 않아도 좋습니다. 푸시 메서드 자체에서 이런 기능을 지원하기 때문입니다.
+2. 배압 상황을 시뮬레이션하기 위해 스트림의 각 원소를 지연시킵니다.
+3. 여기서는 onNext 이벤트를 구독합니다.
+
+push 팩토리 메서드는 기본 배압 및 취소 전략을 사용해 비동기 API를 적용할 때 유용하게 사용할 수 있습니다. 또한 push 팩토리 메서드와 비슷하게 동작하는 create 팩토리 메서드도 있습니다. 하지만 create 메서드를 사용하면 FluxSink 인스턴스를 추가로 직렬화하므로 다른 스레드에서 이벤트를 보낼 수 있습니다. 두 메서드는 모두 오버플로 전략을 재정의할 수 있으며 다음 코드와 같이 추가적인 핸들러를 등록해 리소스 정리를 활성화할 수도 있습니다.
+
+```java
+@Test
+    public void p_162_2(){
+        Flux.create(emitter->{
+            emitter.onDispose(() -> log.info("Disposed"));
+        }).subscribe(e->log.info("onNext : {}",e));
+    }
+```
+
+### 팩토리 메서드 - generate
+
+generate 메서드는 메서드를 호출하는 오브젝트의 내부 전달 상태를 기반으로 복잡한 시퀀스를 만들 수 있도록 설계됐습니다. 이전 값을 기반을 다음 내부 상태를 계산하고 onNext 신호를 다운스트림 구독자에게 전송하기 위해 초깃값과 함수 하나가 필요합니다. 예를 들어 피보나치 시퀀스를 생성하는 간단한 리액티브 스트림을 생성해 보겠습니다.
+
+```java
+@Test
+    public void p_163_1() {
+        Flux.generate(
+                        () -> Tuples.of(0L, 1L),
+                        (state, sink) -> {
+                            log.info("generated value : {}", state.getT2());
+                            sink.next(state.getT2());
+                            long newValue = state.getT1() + state.getT2();
+                            return Tuples.of(state.getT2(), newValue);
+                        }
+                )
+                .take(7)
+                .doOnNext(e -> {
+                    log.info("onNext: {}", e);
+                })
+                .blockLast(); // 동기적으로 끝날 때까지 블로킹
+    }
+```
+
+1. generate 메서드를 사용해 사용자 정의 리액티브 시퀀스를 생성할 수 있습니다. `Tuples.of(0L, 1L)`를 시퀀스의 초깃값으로 사용합니다.(1,1). 생성 단계에서 state 쌍의 두 번째 값을 참조해 onNext 신호를 보내고(1.2) 피보나치 시퀀스의 다음 값을 기반으로 새로운 state쌍을 다시 계산합니다.(1.3)
+2. delayElements 연산자를 사용해 onNext 시그널 중간에 지연 시간을 추가합니다.
+3. 예제를 단순화하기 위해 처음 7개 원소만 사용합니다.
+4. 시퀀스 생성을 위해 이벤트를 구독합니다.
+
+코드 실행 결과는 다음과 같습니다.
+
+```java
+12:32:34.943 [main] INFO chap04.MakeStreamByCodeTest - generated value : 1
+12:32:34.943 [main] INFO chap04.MakeStreamByCodeTest - onNext: 1
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - generated value : 1
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - onNext: 1
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - generated value : 2
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - onNext: 2
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - generated value : 3
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - onNext: 3
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - generated value : 5
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - onNext: 5
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - generated value : 8
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - onNext: 8
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - generated value : 13
+12:32:34.944 [main] INFO chap04.MakeStreamByCodeTest - onNext: 13
+```
+
+### 일회성 리소스를 리액티브 스트림에 배치
+
+using 팩토리 메서드를 이용하면 일회성 리소스에 의존하는 스트림을 만들 수 있습니다. 이는 리액티브 프로그래밍에서 `try-with-resources` 방식의 접근법이라고 할 수 있습니다. 다음과 같이 단순하게 표현된 `Collection` 클래스로 블로킹 API를 래핑하는 것을 가정해보겠습니다.
+
+```java
+@Slf4j
+public class Connection implements AutoCloseable{
+
+    private final Random rnd = new Random();
+
+    public Iterable<String> getData(){
+        if(rnd.nextInt(10) < 3){
+            throw new RuntimeException("Communication Error");
+        }
+        return Arrays.asList("Some","data");
+    }
+
+    @Override
+    public void close() throws Exception {
+        log.info("IO Connection closed");
+    }
+
+    public static Connection newConnection(){
+        log.info("IO Connection created");
+        return new Connection();
+    }
+}
+```
+
+1. 자바의 try-catch-resources 문을 사용해 새 연결을 만들고 코드 블록을 벗어날 때 자동으로 닫습니다.
+2. 비즈니스 데이터를 가져와 처리합니다.
+3. 예외가 발생하면 로깅합니다.
+
+```java
+@Test
+    public void p_165_1() {
+        try(Connection conn = Connection.newConnection()){// 1
+            conn.getData().forEach(// 2
+                    data -> log.info("Received data: {}",data)
+            );
+        }catch (Exception e){// 3
+            log.info("error : {}",e.getMessage());
+        }
+    }
+```
+
+위 코드와 동일한 처리를 하는 리액티브 코드는 다음과 같습니다.
+
+```java
+@Test
+    public void p_165_2(){
+        Flux<String> ioRequestResults = Flux.using(// 1
+                Connection::newConnection,// 1.1
+                connection -> Flux.fromIterable(connection.getData()),// 1.2
+                Connection::close// 1.3
+        );
+
+        ioRequestResults.subscribe(// 2
+            data -> log.info("Recieved data: {}", data),
+                e -> log.info("Error : {}",e.getMessage()),
+                () -> log.info("Stream finished")
+        );
+    }
+```
+
+1. using 팩토리 메서드를 사용하면 Connection 인스턴스 라이프 사이클을 스트림의 라이프 사이클에 래핑할 수 있습니다. using 메서드는 일회성 리소스를 만드는 방법을 알아야합니다. 이 경우 (1.1)이 그에 해당합니다. 그런 다음 방금 생성된 리소스를 리액티브 스트림으로 변환하는 방법을 알아야 합니다. 이 경우 fromIterable 메서드를 호출합니다. (1.2) 처리가 끝나면 Connection 인스턴스의 close 메서드를 호출합니다.(1.3)
+2. 실제 처리를 시작하여면 onNext, onError, onComplete 시그널에 대한 핸들러를 사용해 구독을 생성해야 합니다.
+
+```java
+13:10:22.930 [main] INFO chap04.dto.Connection - IO Connection created
+13:10:22.933 [main] INFO chap04.MakeStreamByCodeTest - Recieved data: Some
+13:10:22.934 [main] INFO chap04.MakeStreamByCodeTest - Recieved data: data
+13:10:22.934 [main] INFO chap04.dto.Connection - IO Connection closed
+13:10:22.934 [main] INFO chap04.MakeStreamByCodeTest - Stream finished
+```
+
+using 연산자는 스트림 종료 시그널을 보내기 전 후에 정리 작업을 할 지 선택할 수 있게 합니다.
+
+### usingWhen 팩토리를 사용해 리액티브 트랜잭션 래핑
+
+using 연산자와 마찬가지로 usingWhen 연산자를 사용해 수동으로 자원을 관리할 수 있습니다. using 연산자는 (Callable 인스턴스를 호출해) 관리 자원을 동기적으로 검색합니다. 반면 usingWhen 연산자는 (Publisher의 인스턴스에 가입해) 관리되는 리소스를 리액티브 타입으로 검색합니다. 또한 usingWhen연산자는 메인 스트림의 성공 및 실패에 대해 각각 다른 핸들러를 사용할 수 있습니다. 이러한 핸들러는 publisher를 이용해 구현합니다. 이 차이점 때문에 단 하나의 연산자만으로 완전한 논블로킹 리액티브 트랜잭션을 구현할 수 있습니다.
+
+전체적으로 리액티브 트랜잭션을 구현한다고 가정해봅시다.
+
+```java
+@Slf4j
+public class Transaction {
+    private static final Random random = new Random();
+    private final int id;
+
+    public Transaction(int id) {
+        this.id = id;
+        log.info("[T: {} created]",id);
+    }
+    public static Mono<Transaction> beginTransaction(){// 1
+        return Mono.defer(()->
+            Mono.just(new Transaction(random.nextInt(1000))));
+    }
+    public Flux<String> insertRows(Publisher<String> rows){// 2
+        return Flux.from(rows)
+                .delayElements(Duration.ofMillis(100))
+                .flatMap(r->{
+                    if(random.nextInt(10) <2){
+                        return Mono.error(new RuntimeException("Error :"+r));
+                    }else{
+                        return Mono.just(r);
+                    }
+                });
+    }
+    public Mono<Void> commit(){// 3
+        return Mono.defer(()->{
+            log.info("[T: {}] commit",id);
+            if(random.nextBoolean()){
+                return Mono.empty();
+            }else{
+                return Mono.error(new RuntimeException("Conflict"));
+            }
+        });
+    }
+    public Mono<Void> rollback(){// 4
+        return Mono.defer(()->{
+           log.info("[T: {}] rollback", id);
+           if(random.nextBoolean()){
+               return Mono.empty();
+           }else{
+               return Mono.error(new RuntimeException("Conn Error"));
+           }
+        });
+    }
+}
+```
+
+1. 새 트랜잭션을 작성할 수 있는 정적 팩토리 입니다.
+2. 각 트랜잭션에서는 트랜잭션 내에서 새로운 row를 저장하는 메서드가 있습니다. 일부 내부 문제(임의 동작)으로 인해 프로세스가 실패하는 경우가 있습니다. insertRows는 리액티브 스트림을 사용하고 반환합니다.
+3. 비동기 commit 메서드 입니다. 경우에 따라 트랜잭션이 커밋되지 않을 수 있습니다.
+4. 비동기 rollback 메서드입니다. 트랜잭션이 롤백되지 못할 수 있습니다.
+
+```java
+@Test
+    public void p_168() throws InterruptedException {
+        Flux.usingWhen(
+                Transaction.beginTransaction(), // 1
+                transaction -> transaction.insertRows(Flux.just("A","B","C")), //2
+                Transaction::commit,//3
+                Transaction::rollback//4
+        ).subscribe(
+                d -> log.info("onNext: {}", d),
+                e->log.info("orError: {}", e.getMessage()),
+                () -> log.info("onComplete")
+        );
+
+        Thread.sleep(5000); // 충분한 대기 시간 (딜레이와 트랜잭션 처리 시간 포함)
+    }
+```
+
+1. beginTransaction 정적 메서드는 Mono<Transaction> 타입을 반환하므로 비동기적으로 새로운 트랜잭션을 반환합니다.
+2. 주어진 트랜잭션 인스턴스에서 새로운 데이터를 삽입하려고 시도합니다.
+3. 단계2가 성공한 경우 트랜잭션을 커밋합니다.
+4. 단계2가 실행한 경우 롤백합니다.
+
+위 코드에서 커밋에 실패했을 경우 아래와 같이 로그가 표시됩니다.
+
+```java
+13:52:44.403 [parallel-1] INFO chap04.MakeStreamByCodeTest - onNext: A
+13:52:44.514 [parallel-2] INFO chap04.dto.Transaction - [T: 627] rollback
+13:52:44.515 [parallel-2] INFO chap04.MakeStreamByCodeTest - orError: Error :B
+```
+
+usingWhen 연산자를 사용하면 완벽하게 리액티브한 방법으로 자원의 라이프 사이클을 관리할 수 있습니다.
