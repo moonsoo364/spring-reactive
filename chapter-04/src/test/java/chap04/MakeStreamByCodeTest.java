@@ -1,5 +1,6 @@
 package chap04;
 
+import chap04.dto.BookService;
 import chap04.dto.Connection;
 import chap04.dto.Transaction;
 import lombok.extern.slf4j.Slf4j;
@@ -8,6 +9,7 @@ import reactor.core.publisher.Flux;
 import reactor.util.function.Tuples;
 
 import java.time.Duration;
+import java.util.UUID;
 import java.util.stream.IntStream;
 
 @Slf4j
@@ -100,5 +102,34 @@ public class MakeStreamByCodeTest {
 
         Thread.sleep(3000); // 충분한 대기 시간 (딜레이와 트랜잭션 처리 시간 포함)
     }
+    @Test
+    public void p_170() throws InterruptedException {
+        Flux.just("user-1")// 1
+                .flatMap(user ->//2
+                                BookService.recommendBooks(user)//2.1
+                                        .retryBackoff(5, Duration.ofMillis(100))// 2.2
+                                        .timeout(Duration.ofSeconds(3))// 2.3
+                                        .onErrorResume(e-> Flux.just("The Martian"))// 2.4
+                        ).subscribe(// 3
+                                b -> log.info("onNext : {}", b),
+                                e->log.info("onError : {}", e.getMessage()),
+                        () -> log.info("onComplete")
+                );
+
+        Thread.sleep(3000);
+    }
+    @Test
+    public void p_173(){
+        Flux<String> coldPublisher = Flux.defer(() ->{
+            log.info("Generating new items");
+            return Flux.just(UUID.randomUUID().toString());
+        });
+
+        log.info("No data was generated so far");
+        coldPublisher.subscribe(e-> log.info("onNext : {}", e));
+        coldPublisher.subscribe(e-> log.info("onNext : {}", e));
+        log.info("Data was generated twice for two subscribers");
+    }
+
 
 }

@@ -1116,3 +1116,115 @@ usingWhen 연산자를 사용하면 완벽하게 리액티브한 방법으로 �
 - subscribe 연산자에서 onError 신호에 대한 핸들러를 정의해야 합니다.
 - onErrorReturn 연산자를 사용하면 예외 발생 시 사전 정의된 정적 ㄱ밧 또는 예외로 계산된 값으로 대체할 수 있습니다.
 - onErrrorResume 연산자를 적용해 예외를 catch하고 대체 워크플로를 실행할 수 있습니다.
+- onErrorMap 연산자를 사용해 예외를  catch하고 상황을 잘 나타내는 다른 예외로 변환할 수 있습니다.
+- 오류가 발생할 경우 다시 실행을 시도하는 리액티브 워크 플로를 정의할 수 있습니다. retry 연산자는 오류 시그널을 보내는 경우 소스 리액티브 시퀀스를 다시 구독합니다. 재시도는 무한대로 하거나 제한된 시간 동안 할 수 있습니다. retryBackoff 연산자는 지수적인 백오프 알고리즘을 지원해 재시도할 때 마다 대기 시간을 증가시킬 수 있습니다.
+
+또한 비어 있는 스트림은 때때로 원하는 입력이 아닐 수 있습니다. 이 경우 defaultIfEmpty 연산자를 사용해 기본값을 반환하거나 switchIfEmpty 연산자를 사용해 완전히 다른 리액티브 스트림을 반환할 수 있습니다.timeout 연산자를 사용하면 작업 대기 시간을 제한하고 `TimeoutException` 을 발생시킬 수 있습니다. 그에 따라 시간이 오래 걸리는 경우 적절한 전약으로 대응할 수 있습니다. 지금 까지 전략의 일부를 예제를 통해 확인해 보겠습니다.
+
+```java
+@Slf4j
+public class BookService {
+    static final Random random = new Random();
+
+    static Flux<String> recommendBooks(String userId){
+        return Flux.defer(()->{
+            if(random.nextInt(10)<7){// 1
+                return Flux.<String>error(new RuntimeException("Error"))// 2
+                        .delaySequence(Duration.ofMillis(100));
+            }else {
+                return Flux.just("Blue Mars", "The Expanse")// 3
+                        .delayElements(Duration.ofMillis(50));
+            }
+        }).doOnSubscribe(s->log.info("Request for {}",userId));// 4
+    }
+}
+```
+
+1. 구독자가 도착할 때까지 계산을 연기합니다.
+2. 신뢰할 수 없는 서비스로 인해 오류가 발생할 가능성이 큽니다. 그러나 delaySequence 연산자를 적용해 모든 시그널을 지연 시킵니다.
+3. 고객이 운이 좋으면 약간의 지연 시간 이후에 추천 결과를 받습니다.
+4. 서비스 요청 내역을 기록합니다.
+
+```java
+@Test
+    public void p_170() throws InterruptedException {
+        Flux.just("user-1")// 1
+                .flatMap(user ->//2
+                                BookService.recommendBooks(user)//2.1
+                                        .retryBackoff(5, Duration.ofMillis(100))// 2.2
+                                        .timeout(Duration.ofSeconds(3))// 2.3
+                                        .onErrorResume(e-> Flux.just("The Martian"))// 2.4
+                        ).subscribe(// 3
+                                b -> log.info("onNext : {}", b),
+                                e->log.info("onError : {}", e.getMessage()),
+                        () -> log.info("onComplete")
+                );
+
+        Thread.sleep(3000);
+    }
+```
+
+1. 여기에서는 영화 추천을 요청하는 사용자 스트림을 생성합니다.
+2. 각 사용자에 대해 신뢰할 수 없는 recommendedBooks 서비스를 호출합니다.(2.1) 만약 호출이 실패하면 지수적인 백오프로 재시도 합니다. 그러나 재시도 전략이 3초 후에도 아무런 결과를 가져오지 않으면 오류 시그널이 발생합니다. (2.3) 마지막으로 오류가 발생하면 onErrorResume 연산자를 사용해 사전에 정의된 보편적인 추천 영화를 반환합니다.(2.4)
+3. 물론 구독을 생성해야 한다.
+
+```java
+17:31:17.949 [main] INFO chap04.dto.BookService - Request for user-1
+17:31:18.082 [parallel-2] INFO chap04.dto.BookService - Request for user-1
+17:31:18.386 [parallel-3] INFO chap04.dto.BookService - Request for user-1
+17:31:18.446 [parallel-4] INFO chap04.MakeStreamByCodeTest - onNext : Blue Mars
+17:31:18.509 [parallel-6] INFO chap04.MakeStreamByCodeTest - onNext : The Expanse
+17:31:18.509 [parallel-6] INFO chap04.MakeStreamByCodeTest - onComplete
+```
+
+로그를 보면 서비스가 user-1에 대한 추천을 시도 했음을 알 수 있습니다.
+
+또한 재시도 지연이 150밀리초에서 1.5초로 증가했습니다. 마지막으로 코드는 recommendBooks 메서드에서 결과를 검색하는 것을 중지하고 기본 값을 반환하고 스트림을 완료합니다.
+
+요약하면, 리액터 프로젝트는 예외적인 상황을 처리할 수 있게 해주고 겨로가적으로 응용 프로그램의 복원력을 향상시키는 데 도움이 되는 다양한 도구를 제공합니다.
+
+### 배압 다루기
+
+리액티브 스트림 스펙에서는 프로듀서와 컨슈머 간의 의사소통에 배압이 필요하지만, 컨슈머에서 오버플로가 발생할 가능성은 여전히 존재합니다. 일부 컨슈머는 제한되지 않은 데이터에 순진하게 응답한 다음 생성된 부하를 처리하지 못합니다. 일부 컨슈머는 수신 메시지 비율에 대해 엄격한 제한을 가하기도 합니다. 예를 들어, 일부 데이터베이스 클라이언트는 초당 1000개가 넘는 레코드를 삽입하지 못하도록 제한합니다. 이 경우 배치 처리 기법이 도움이 될 수도 있습니다. 또는 다음과 같은 방법으로 배압을 처리하도록 스트림을 구성할 수 있습니다.
+
+- onBackPressureBuffer 연산자는 제한되지 않은 요구를 요청하고 결과를 다운 스트림으로 푸시합니다. 그러나 다운스트림 컨슈머의 부하를 유지할 수 없는 경우 큐를 이용해 버퍼링합니다. onBackPresureBuffer 연산자는 여러가지 매개변수를 이용해 다양한 옵션을 제공하므로 동작을 쉽게 조정할 수 있습니다.
+- onBackPressureDrop 연산자는 제한되지 않은 요구를 요청하고 데이터를 하위로 푸쉬합니다. 다운스트림의 처리 용량이 충분하지 않으면 일부 데이터가 삭제됩니다. 사용자 정의 핸들러를 사용해 삭제된 원소를 처리할 수 있습니다.
+- onBackPressure 연산자는 onBackPressureDrop과 유사하게 동작합니다. 그러나 가장 최근에 수신된 원소를 기억하고 요청이 발생하면 이를 다운스트림으로 푸시합니다. 오버 플로 상황에서도 항상 최신 데이터를 수신하는 데 도움이 될 수 있습니다.
+- onBackPressureError 연산자는 데이터 다운스트림으로 푸시하는 동안 크기를 제한하지 않고 요청합니다. 다운스트림 컨슈머가 처리를 계속 유지할 수 없으면 게시자는 오류를 발생합니다.
+
+배압을 관리하는 또 다른 방법은 속도 제한 기술을 사용하는 것입니다.
+
+limitRate(n) 연산자는 다운 스트림 수요를 n보다 크지 않은 작은 규모로 나눕니다. 이렇게 하면 다운 스트림 컨슈머의 부적절한 규모 데이터 요청으로부터 섬세한 게시자를 보호할 수 있습니다. limitRequest(n) 연산자를 이용하면 다운스트림 컨슈머의 수요(총 요청 값)을 제한할 수 있습니다. 예를 들어 limitRequest(100)은 게시자가 총 100개 이상의 원소에 대해 요청되지 않도록 합니다. 100개의 이벤트를 전송한 후 게시자는 스트림을 성공적으로 닫습니다.
+
+### Hot 스트림과 Cold 스트림
+
+리액티브 게시자에 대해 이야기할 때 게시자를 hot과 cold 두가지 유형으로 분류할 수 있습니다.
+
+콜드 퍼블리셔는 구독자가 나타날 때마다 해당 구독자에 대해 모든 시퀀스 데이터가 생성되는 방식으로 동작합니다. 또한 콜드 퍼블리셔의 경우 구독자 없이는 데이터가 생성되지 않습니다.
+
+```java
+@Test
+    public void p_173(){
+        Flux<String> coldPublisher = Flux.defer(() ->{
+            log.info("Generating new items");
+            return Flux.just(UUID.randomUUID().toString());
+        });
+
+        log.info("No data was generated so far");
+        coldPublisher.subscribe(e-> log.info("onNext : {}", e));
+        coldPublisher.subscribe(e-> log.info("onNext : {}", e));
+        log.info("Data was generated twice for two subscribers");
+    }
+```
+
+코드 실행 결과는 다음과 같습니다.
+
+```java
+17:56:27.896 [main] INFO chap04.MakeStreamByCodeTest - Generating new items
+17:56:28.252 [main] INFO chap04.MakeStreamByCodeTest - onNext : d9d089ad-7f82-466a-830d-7e1eaa3f4f60
+17:56:28.254 [main] INFO chap04.MakeStreamByCodeTest - Generating new items
+17:56:28.254 [main] INFO chap04.MakeStreamByCodeTest - onNext : 3d9c364f-e534-42ef-9ba4-97eec06f046c
+17:56:28.254 [main] INFO chap04.MakeStreamByCodeTest - Data was generated twice for two subscribers
+```
+
+결과를 보면 알 수 있듯이 구독자가 나타날 때 마다 새로운 시퀀스가 생성됩니다. 대표적으로 HTTP 요청이 이런식으로 동작합닏. 새로운 구독자가 HTTP 요청을 할 때까지 호출이 생성되지 않습니다.
