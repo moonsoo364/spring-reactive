@@ -1671,3 +1671,10 @@ public void subscribe(Subscriber actual){
 ```
 
 parrellel 연산자를 사용함으로 ParallelFlux라는  다른 유형의 Flux를 동작시킨다는 것입니다. ParallelFlux는 다수의 Flux를 추상화한 것으로 Flux 간에 데이터 크기가 균형을 이룹니다.
+### Scheduller
+
+스케줄러는 Scheduler.schedule과 Scheduler.createWorker라는 두 가지 핵심 메서드를 가진 인터페이스 입니다. schedule 메서드를 사용하면 Runnable 작업을 예약하는 것이 가능합니다. 반면에 createWorker 메서드는 동일한 방법으로 Runnable 작업을 예약하는 것이 가능합니다. 반면에 createWorker 메서드는 동일한 방법으로 Runnable 작업을 예약할 수 있는 Worker 인터페이스를 제공합니다. Scheduler 인터페이스와 Worker 인터페이스의 주요 차이점은 Scheduler 인터페이스가 워커 풀을 나타내는 반면 Worker는 Thread 또는 리소스를 추상화한 것 이라는 점입니다. 기본적으로 리액터는 스케줄 인터페이스에 대해 주요한 3가지 구현체를 제공합니다.
+
+- SingleScheduler를 사용하면 모든 작업을 한 개의 전용 워커에 예약할 수 있습니다. 이 스케줄러는 시간에 의존적인 방식이며, 주기적인 이벤트를 예약할 수 있습니다. 이 스케줄러는 Scheduler.single()을 호출해 생성할 수 있습니다.
+- ParallelScheduler는 고정된 크기의 작업자 풀에서 작동합니다. (기본적으로 크기는 CPU 코어 수로 제한됨) 이 스케줄러는 CPU 제한적인 작업에 적합합니다. 또한 기본적으로Flux.interval(Duration.ofSecond(1))과 같은 시간 관련 예약 이벤트 처리를 합니다. 이 스케줄러는 Scheduler.parallel()을 호출해 생성할 수 있습니다.
+- ElasticScheduler는 동적으로 작업자를 만들고 스레드 풀을 캐시합니다. 생성된 스레드 풀의 최대 개수는 제한되지 않으므로 IO 집약적인 작업에 적합합니다. 이 스케줄러는 Scheduler.elastic() 메서드를 호출해 생성할 수 있습니다.
