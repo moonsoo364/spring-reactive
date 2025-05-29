@@ -1227,4 +1227,447 @@ limitRate(n) 연산자는 다운 스트림 수요를 n보다 크지 않은 작�
 17:56:28.254 [main] INFO chap04.MakeStreamByCodeTest - Data was generated twice for two subscribers
 ```
 
-결과를 보면 알 수 있듯이 구독자가 나타날 때 마다 새로운 시퀀스가 생성됩니다. 대표적으로 HTTP 요청이 이런식으로 동작합닏. 새로운 구독자가 HTTP 요청을 할 때까지 호출이 생성되지 않습니다.
+결과를 보면 알 수 있듯이 구독자가 나타날 때 마다 새로운 시퀀스가 생성됩니다. 대표적으로 HTTP 요청이 이런식으로 동작합니다. 새로운 구독자가 HTTP 요청을 할 때까지 호출이 생성되지 않습니다.
+
+### 스트림 원소를 여러 곳으로 보내기
+
+콜드 퍼블리셔를 핫 퍼블리셔로 전환할 수 있습니다. 예를 들어 콜드 퍼블리셔의 결과를 데이터 생성 준비가 완료되는 대로 일부 구독자에게 공유하는 경우가 있습니다. 또한 여기서는 각 구독자를 위해 중복된 데이터를 생성하지 않으려고 합니다. 리액터 프로젝트에는 이러한 용도로 ConnectableFlux가 있습니다. ConnectableFlux를 이용하면 가장 수요가 많은 데이터를 생성하고 다른 모든 가입자가 데이터를 처리할 수 있도록 캐싱합니다.
+
+ConnectableFlux의 동작을 예제로 설명해 보겠습니다.
+
+```java
+ @Test
+    public void p_174(){
+        Flux<Integer> source = Flux.range(0,3)
+                .doOnSubscribe(s -> log.info("new subscription for the cold publisher"));
+
+        ConnectableFlux<Integer> conn = source.publish();
+
+        conn.subscribe(e -> log.info("[Subscriber 1] onNext: {}", e));
+        conn.subscribe(e -> log.info("[Subscriber 2] onNext: {}", e));
+
+        log.info("all subscribers are ready, connecting");
+        conn.connect();
+    }
+```
+
+콜드 퍼블리셔는 구독을 받았으며 결과적으로 한 번만 항목을 생성했습니다. 그러나 두 구독자는 각각 이벤트 집합을 받았습니다.
+
+```java
+08:57:21.578 [main] INFO chap04.MakeStreamByCodeTest - all subscribers are ready, connecting
+08:57:21.581 [main] INFO chap04.MakeStreamByCodeTest - new subscription for the cold publisher
+08:57:21.583 [main] INFO chap04.MakeStreamByCodeTest - [Subscriber 1] onNext: 0
+08:57:21.584 [main] INFO chap04.MakeStreamByCodeTest - [Subscriber 2] onNext: 0
+08:57:21.584 [main] INFO chap04.MakeStreamByCodeTest - [Subscriber 1] onNext: 1
+08:57:21.584 [main] INFO chap04.MakeStreamByCodeTest - [Subscriber 2] onNext: 1
+08:57:21.584 [main] INFO chap04.MakeStreamByCodeTest - [Subscriber 1] onNext: 2
+08:57:21.584 [main] INFO chap04.MakeStreamByCodeTest - [Subscriber 2] onNext: 2
+```
+
+### 스트림 내용 캐싱하기
+
+ConnectableFlux를 사용하면 다양한 데이터 캐싱 전략을 쉽게 구현할 수 있습니다. 그러나 리액터에는 이벤트 캐싱을 위한 연산자로 cache가 존재합니다. 내부적으로는 cache 연산자는 ConnectableFlux를 사용하므로 간단한 연쇄형 API는 덤으로 얻을 수 있습니다. 캐시가 보유할 수 있는 데이터의 양과 캐시된 각 항목의 만료 시간을 조정할 수 있습니다. 다음 예제를 통해 작동 원리를 설명하겠습니다.
+
+```java
+@Test
+    public void p_175() throws InterruptedException {
+        Flux<Integer> source = Flux.range(0, 2)// 1
+                .doOnSubscribe(s -> log.info("new subscription for the cold publisher"));
+        Flux<Integer> cachedSource = source.cache(Duration.ofSeconds(1));// 2
+        cachedSource.subscribe(e-> log.info("[s 1] onNext : {}",e));// 3
+        cachedSource.subscribe(e-> log.info("[s 2] onNext : {}",e));// 4
+        Thread.sleep(1200);// 5
+        cachedSource.subscribe(e-> log.info("[s 3] onNext : {}",e));// 5
+    }
+```
+
+1. 일단 몇 가지 아이템을 만들 콜드 퍼블리셔를 만듭니다.
+2. 1초 동안 cache연산자로 콜드 퍼블리셔를 캐시 합니다.
+3. 첫 번째 가입자를 연결합니다.
+4. 첫 번째 가입자 연결 직후에 두 번째 가입자를 연결합니다.
+5. 캐시된 데이터가 만료될때까지 잠시 기다립니다.
+6. 마지막 세 번째 가입자를 연결합니다.
+
+```java
+09:08:35.246 [main] INFO chap04.MakeStreamByCodeTest - new subscription for the cold publisher
+09:08:35.246 [main] INFO chap04.MakeStreamByCodeTest - [s 1] onNext : 0
+09:08:35.247 [main] INFO chap04.MakeStreamByCodeTest - [s 1] onNext : 1
+09:08:35.248 [main] INFO chap04.MakeStreamByCodeTest - [s 2] onNext : 0
+09:08:35.248 [main] INFO chap04.MakeStreamByCodeTest - [s 2] onNext : 1
+09:08:36.452 [main] INFO chap04.MakeStreamByCodeTest - new subscription for the cold publisher
+09:08:36.452 [main] INFO chap04.MakeStreamByCodeTest - [s 3] onNext : 0
+09:08:36.452 [main] INFO chap04.MakeStreamByCodeTest - [s 3] onNext : 1
+```
+
+로그를 기반으로 처음 두 구독자가 첫 번째 구독의 동일한 캐시된 데이터를 공유했다고 결론을 내릴 수 있습니다. 그런 다음 지연 시간이 지난 후 세 번째 구독자가 캐시된 데이터를 검색할 수 없어 콜드 퍼블리셔에 대해새로운 구독이 발생했습니다.
+
+### 스트림 내용 공유
+
+ConnectableFlux를 사용해 여러 개의 구독자에 대한 이벤트를 멀티 캐스트합니다. 그러나 구독자가 나타나고 나서야 처리가 시작됩니다. share 연산자를 사용하면 콜드 퍼블리셔를 핫 퍼블리셔로 변환할 수 있습니다. share 연산자는 구독자가 각 신규 구독자에게 이벤트를 전파하는 방식으로 작동 합니다.
+
+다음 예제를 보겠습니다.
+
+```java
+@Test
+    public void p_177() throws InterruptedException {
+        Flux<Integer> source= Flux.range(0, 5)
+                .delayElements(Duration.ofMillis(100))
+                .doOnSubscribe(s ->
+                        log.info("new subscription for the cold publisher"));
+
+        Flux<Integer> cachedSource = source.share();//첫 번째 구독자가 생기는 순간 데이터 흐름 시작
+        cachedSource.subscribe(e -> log.info("[s 1] onNext : {}", e));
+        Thread.sleep(400);
+        cachedSource.subscribe(e -> log.info("[s 2] onNext : {}", e));
+        Thread.sleep(2000);
+    }
+```
+
+이 코드에서는 100밀리초마다 이벤트를 생성하는 콜드 스트림을 공유했습니다. 그런 다음 약간의 지연 시간을 두고 두명의 구독자가 공유된 게시자를 구독합니다.
+
+로그에서 첫 번째 구독자가 0 부터 시작해 이벤트를 수신하기 시작한 반면 두 번째 구독자는 자신이 생성되기 전에 발생한 이벤트는 수신하지 못했습니다.
+
+```java
+09:26:54.558 [main] INFO chap04.MakeStreamByCodeTest - new subscription for the cold publisher
+09:26:54.687 [parallel-1] INFO chap04.MakeStreamByCodeTest - [s 1] onNext : 0
+09:26:54.798 [parallel-2] INFO chap04.MakeStreamByCodeTest - [s 1] onNext : 1
+09:26:54.909 [parallel-3] INFO chap04.MakeStreamByCodeTest - [s 1] onNext : 2
+09:26:55.019 [parallel-4] INFO chap04.MakeStreamByCodeTest - [s 1] onNext : 3
+09:26:55.019 [parallel-4] INFO chap04.MakeStreamByCodeTest - [s 2] onNext : 3
+09:26:55.130 [parallel-5] INFO chap04.MakeStreamByCodeTest - [s 1] onNext : 4
+```
+
+### 시간 다루기
+
+리액티브 프로그래밍은 비동기적이므로 본질적으로 시간의 축이 있다고 가정합니다. 리액터 프로젝트를 사용하면 interval 연산자로 주기적으로 이벤트를 생성하고 delayElements 연산자로 원소를 지연시킬 수 있으며 delaySequence 연산자로 신호를 지연 시킬 수 있습니다. 리액터의 API를 사용하면 앞서 설명한 timestamp 및 timeout 같은 연산자를 이용해 시간 관련 이벤트를 처리할 수 있습니다. timestamp와 마찬가지로 elapsed 연산자는 이전 이벤트와의 시간 간격을 측정합니다. 다음 코드를 살펴보겠습니다.
+
+```java
+@Test
+    public void p_178() throws InterruptedException {
+        Flux.range(0, 5)
+                .delayElements(Duration.ofMillis(100))
+                .elapsed()
+                .subscribe(e ->log.info("Elapsed {} ms: {}",e.getT1(),e.getT2()));
+
+        Thread.sleep(1000);
+
+    }
+```
+
+위 결과로 볼 때 이벤트가 100밀리초 간격 이내 정확하게 도착하지 않는다는 것이 분명합니다. 이것은 리액터가 예정된 이벤트에 대해 자바의  `ScheduledExecutorService` 를 사용하기 때문에 그렇습니다. 따라서 리액터 라이브러리에서 너무 정확한 시간을 요구하지 않도록 주의해야 합니다.
+
+### 리액티브 스트림을 조합하고 변환하기
+
+복잡한 리액티브 워크플로를 구축할 때 서로 다른 위치에서 동일한 순서의 연산자를 사용해야 할 때가 있습니다. transform 연산자를 활용하면 이런 공통 부분을 별도의 객체로 추출해 필요할 때 마다 재사용할 수 있습니다.
+
+이전까지는 스트림 내에서 이벤트를 변환했습니다. transform 연산자를 이용하면 스트림 구조 자체를 강화할 수 있습니다.
+
+```java
+@Test
+    public void p_179(){
+        Function<Flux<String>,Flux<String>> logUserInfo = // 1
+                stream -> stream.index()// 1.1
+                        .doOnNext(// 1.2
+                        tp -> log.info("[{}] User : {}",tp.getT1(), tp.getT2())
+                ).map(Tuple2::getT2);// 1.3
+        Flux.range(1000, 3)// 2
+                .map(i -> "user-"+i)
+                .transform(logUserInfo)// 3
+                .subscribe(e -> log.info("onNext : {}", e));
+    }
+```
+
+1. `Function<Flux<String>,Flux<String>>` 타입을 반환하는 logUserInfo 함수를 정의합니다. 이 함수는 String 타입의 리액티브 스트림으로 변환하면서 String 값을 생성합니다. 이 예제에서는 onNext 시그널에 대해 함수가 사용자에 대한 세부 정보를 로깅하고(1.2) index 연산자로 수신 이벤트를 열거형으로 전환합니다.(1.1) 최종적으로 발신되는 스트림에는 index()에 의해 변환된 정보가 포함돼 있지 않습니다. 그 이유는 map(Tuple2::getT2)가 호출되면서 이 정보가 제거됐기 때문입니다. (1.3)
+2. 사용자 ID를 생성합니다.
+3. transform 연산자를 적용해 logUserInfo 함수로 정의된 변환을 적용합니다.
+
+```java
+09:47:06.332 [main] INFO chap04.MakeStreamByCodeTest - [0] User : user-1000
+09:47:06.332 [main] INFO chap04.MakeStreamByCodeTest - onNext : user-1000
+09:47:06.332 [main] INFO chap04.MakeStreamByCodeTest - [1] User : user-1001
+09:47:06.333 [main] INFO chap04.MakeStreamByCodeTest - onNext : user-1001
+09:47:06.333 [main] INFO chap04.MakeStreamByCodeTest - [2] User : user-1002
+09:47:06.333 [main] INFO chap04.MakeStreamByCodeTest - onNext : user-1002
+```
+
+각 원소는 logUserInfo 함수에서 한 번 로깅되고 최족적으로 구독을 통해 한 번 더 기록됩니다. transform 연산자는 스트림 라이프 사이클의 결합 단계에서 스트림 동작을 한 번만 변경합니다. 리액터에는 똑같은 일에 하는 composer 연산자가 있습니다. 이 연산자는 구독자가 도착할 때마다 동일한 스트림 변환 작업을 수행합니다. 다음 코드를 보면서 동작 원리를 살펴보겠습니다.
+
+```java
+@Test
+    public void p_180(){
+        Random random = new Random();
+        Function<Flux<String>, Flux<String>> logUserInfo = (stream) ->{// 1
+            if(random.nextBoolean()){
+                return stream.doOnNext(e -> log.info("[path A] User : {}", e));
+            }else{
+                return stream.doOnNext(e -> log.info("[path B] User : {}", e));
+            }
+        };
+        Flux<String> publisher = Flux.just("1", "2")// 2
+                .compose(logUserInfo);// 3
+        publisher.subscribe();// 4
+        publisher.subscribe();
+    }
+```
+
+1. 이 예제에서는 함수가 매번 스트림 변환 방법을 임의로 선택합니다. 두 경로는 로그 메시지 접두사만 다릅니다.
+2. 데이터를 생성하는 게시자를 만듭니다.
+3. compose 연산자를 사용해 logUserInfo 함수를 실행 워크 플로에 포함합니다.
+4. 다른 행동을 관찰하기 위해 2번 구독합니다.
+
+```java
+10:08:22.636 [main] INFO chap04.MakeStreamByCodeTest - [path B] User : 1
+10:08:22.636 [main] INFO chap04.MakeStreamByCodeTest - [path B] User : 2
+10:08:22.637 [main] INFO chap04.MakeStreamByCodeTest - [path A] User : 1
+10:08:22.637 [main] INFO chap04.MakeStreamByCodeTest - [path A] User : 2
+```
+
+로그 메시지를 통해 첫 번째 구독이 경로 B를 두 번째 구독이 경로 A를 거쳤음을 알 수 있습니다. 물론 compose 연산자를 사용하면 로그 메시지 접두어를 무작위로 선택하는 것보다 복잡한 비즈니스 로직을 구현할 수 있습니다. transform 및 compose는 리액티브 응용 프로그램에서 코드를 재사용할 수 있는 강력한 도구 입니다.
+## 리액터 프로젝트 심화학습
+리액티브 스트림의 수명 주기, 멀티스레딩, 리액터 프로젝트에서 내부 최적화가 작동하는 방식에 대해 알아봅시다.
+
+### 리액티브 스트림의 수명 주기
+
+리액터에서 멀티스레딩이 작동하는 방법과 내부 최적화가 구현되는 방법을 이해하기 위해서는 리액터에서 리액티브 타입의 수명 주기를 이해해야 합니다.
+
+### 조립 단계
+
+스트림 수명 주기의 첫 번째 부분은 조립 단계입니다. 앞 절에서 학습한 것 처럼 리액터는 복잡한 처리 흐름을 구현할 수 있는 연쇄형 API를 제공합니다. 언뜻 보면 리액터가 제공하는 API는 처리 흐름에서 사용하는 연산자를 조합한 빌더 API 처럼 보입니다. 빌더 패턴은 가변적인 객체를 생성하며, 다른 객체를 생성하기 위해 build()와 같은 최종 함수를 호출하는 것이 일반적입니다. 일반적인 빌더 패턴과 달리 리액터 API는 불변성을 제공합니다. 따라서 적용된 각각의 연산자가 새로운 객체를 생성합니다. 따라서 적용된 각각의 연산자가 새로운 객체를 생성합니다. 리액티브 라이브러리에서 실행 흐름을 작성하는 프로세스를 조립(assembling) 이라고 합니다. 조립 방법을 더 잘 이해하기 위해 리액터 빌더 API가 없는 경우의 조립 방식을 보여주는 다음 코드를 살펴봅시다.
+
+```java
+@Test
+    public void p_185(){
+        Flux<Integer> sourceFlux = new FluxArray(1, 20 ,30,4000);
+        Flux<String> mapFlux = new FluxMap(sourceFlux, String::valueOf);
+        Flux<String> filterFlux = new FluxFilter(mapFlux, s->length() > 1);
+    }
+```
+
+이 코드는 연쇄형 빌더 API가 없는 경우 코드를 작성하는 방법을 보여줍니다. 여러 Flux가 내부적으로 서로 조합돼 있음은 분명 합니다. 조립 프로세스가 끝나면 다음 게시자가 이전 게시자를 참조하는 게시자 체인이 생성됩니다. 아래 의사 코드는 이를 보여줍니다.
+
+```java
+ public void p_185_2(){
+        FluxFilter(
+                FluxMap(
+                        FluxArray(1, 2, 3, 40, 500, 6000)
+                )
+        )
+    }
+```
+
+앞의 코드는 Flux에 just → map → filter와 같은 순서로 연산자를 적용하면 결과가 어떤 형태가 될지를 보여줍니다. 스트림 수명 주기에서 조립 단계가 중요한 이유는 스트림의 타입을 확인해 연산자를 서로 바꿀 수 있기 때문입니다. 다음 코드는 리액터에서 이를 어떻게 수행하는 지 보여줍니다.
+
+```java
+public final Flux<T> concatWith(Publisher<? extends T> other) {
+        if (this instanceof FluxConcatArray) {
+            FluxConcatArray<T> fluxConcatArray = (FluxConcatArray)this;
+            return fluxConcatArray.concatAdditionalSourceLast(other);
+        } else {
+            return concat(this, other);
+        }
+    }
+```
+
+매개변수로 받은 Flux가 FluxConcatArray 인스턴스인 경우 `FluxConcatArray(FluxConcatArray(FluxA, FluxB), FluxC)` 로 동작하는 것이 아니라 하나의 `FluxConcatArray(FluxA, FluxB, FLuxC)` 를 만들어 전체적인 성능을 향상시킵니다.
+
+또한 조립 단계에서 스트림에 몇 가지 훅을 사용하면 디버깅이나 스트림 모니터링 중에 유용한 로깅, 추적, 메트릭 수집 또는 기타 중용한 기능을 사용할 수 있습니다.
+
+리액티브 스트림 수명 주기 중 조립 단계의 역살을 요학하면 스트림 구성을 조작하고 리액티브 시스템을 구축하는 데 필수적인 디버깅 최적화나 모니터링, 더 나은 스트림 전달을 위한 다양한 기술을 적용할 수 있는 단계라고 할 수 있습니다.
+
+### 구독단계
+
+구독은 특정 publisher를 구독할 때 발생합니다.
+
+```java
+filteredFlux.subscribe();
+```
+
+실행 플로를 만들기 위해 내부적으로 Publisher를 다른 Publisher에게 전달합니다. 따라서 일련의 Publisher 체인이 있다고 할 수 있습니다. 일단 최상위 래퍼를 구독하면 해당 체인에 대한 구독 프로세스가 시작됩니다. 다음 코드는 구독 단계 동안 Subscriber 체인을 통해 Subscriber가 전파되는 방식을 보여줍니다.
+
+```java
+filterFlux.subscribe(Subscriber){
+	mapFlux.subscribe(new FilterSubscriber(Subscriber)){
+		arrayFlux.subscribe(new MapSubscriber(FilterSubscriber(Subscriber))){
+			// 여기에서 실제 데이터를 송신하기 시작합니다.
+		}
+	}
+}
+```
+
+이 코드는 조립된 Flux 내부에서 구독 단계 동안 발생하는 상황을 보여줍니다. 보다시피 filteredFlux.subscribe 메서드를 실행하면 각 내부 Publisher에 대한 subscribe 메서드가 실행됩니다.주석이 있는 행에서 실행이 끝나고 나면 내부에는 다음과 같이 연결된 Subscriber 시퀀스가 존재합니다.
+
+```java
+ArraySubscriber(
+	MapSubscriber(
+		FilterSubscriber(
+			Subscriber
+		)	
+	)
+)
+```
+
+Subscriber 피라미드 맨위에 ArraySubscriber 래퍼가 있습니다. Flux 피라미드의 경우에는 FluxArray가 중간에 존재합니다.
+
+구독 단계가 중요한 이유는 이 단계에서 조립 단계와 동일한 최적화를 수행할 수 있기 때문입니다. 또다른 중요한 점은 리액터에서 멀티 스레딩을 지원하는 일부 연산자는 구독이 발생하는 작업자를 변경할 수 있다는 것입니다.
+
+### 런타임 단계
+
+스트림 실행의 마지막 단계는 런타임 단계입니다. 이 단계에서 게시자와 구독자 간에 실제 신호가 교환됩니다. 리액티브 스트림 스펙에 정의돼 있듯이 게시자와 구독자가 교환하는 처음 두 신호는 onSubscribe 시그널과 request 시그널 입니다.
+
+onSubscribe 메서드는 최상위 소스에서 호출됩니다. 구독자는 메서드를 호출해 구독을 시작합니다. 이 과정을 설명하는 의사 코드는 다음과 같습니다.
+
+```java
+MapSubscriber(filterSubscriber(Subscriber).onSubscribe(
+	new ArraySubscription()
+){
+	FilterSubscriber(Subscriber).onSubscribe(
+		new MapSubscription(ArraySubscription())
+	){
+		Subscriber.onSubscribe(
+			FilterSubscription(MapSubscription(ArraySubscription()))
+		){
+			// 여기에 요청 데이터를 기술합니다.
+		}
+	}
+}
+```
+
+구독이 모든 구독자 체인을 통과하고 체인에 포함된 각 구독자가 지정된 구독을 자신의 표현으로 래핑하면 최종적으로 다음 코드와 같이 Subscription 래퍼의 피라미드를 얻습니다.
+
+```java
+FilterSubscription(
+	MapSubscription(
+		ArraySubscription()
+	)
+)
+```
+
+마지막으로, 마지막 구독자가 구독 체인에 대한 정보를 수신하고 메시지를 시작하면 Subscription#request 메서드를 호출해 전송을 시작해야 합니다. 다음 의사 코드는 request가 어떻게 동작하는 지 보여 줍니다.
+
+```java
+FilterSubscription(MapSubscription(ArraySubscription(...)))
+	.request(10){
+		MapSubscription(ArraySubscription(...))
+		.request(10) {
+			ArraySubscription(...)
+			.request(10){
+				// 데이터 전송 시작
+			}
+		}
+	}
+```
+
+모든 구독자가 요청한 수요를 통과하고 ArraySubscription이 이를 수신하고 나면 ArrayFlux는 데이터를 MapSubscriber(FilterSubscriber(Subscriber)) 체인으로 보내기 시작합니다. 다음은 모든 구독자를 통해 데이터를 보내는 프로세스를 설명하는 의사 코드 입니다.
+
+```java
+ArraySubscription.request(10){
+	MapSubscriber(FilterSubscriber(Subscriber)).onNext(1){
+		//데이터 변환 로직을 작성
+		FilterSubscriber(Subscriber).onNext("1"){
+			//필터 처리
+			//원소가 일치하지 않으면
+			//추가 데이터를 요청
+			MapSubscription(ArraySubscription(...)).request(1).{...}
+		}
+	}
+	
+	MapSubscription(FilterSubscriber(Subscriber)).onNext(20){
+		//데이터 변환 로직을 작성
+		FilterSubscriber(Subscriber).onNext("20"){
+			//필터 처리
+			//원소가 일치하면
+			//다운스트림 구독자에게 전송
+			Subscriber.onNext("20"){...}
+		}
+	}
+}
+```
+
+이 코드에서 알 수 있듯이, 런타임 중에 데이터는 소스로부터 각 Subscriber 체인을 거쳐 단계마다 다른 기능을 실행합니다.
+
+런타임 단계가 중요한 이유는 런타임 중에 신호 교환량을 줄이기 위한 최적화를 적용할 수 있기 때문입니다. 예를 들어 Subscription#request 호출 횟수를 줄임으로써 스트림의 성능을 향상시킬 수 있습니다.
+
+## 리액터에서 스레드 스케줄링 모델
+리액터가 멀티스레딩 실행을 위해 제공하는 연산자와 연산자 사이의 차이점을 알아보겠습니다.
+
+### publishOn 연산자
+
+publishOn 연산자는 런타임 실행의 일부를 지정된 워커로 이동할 수 있게 해줍니다.
+
+- 스케줄러의 기본 개념이 작업을 동일한 스레드의 큐에 넣는 것이기 때문에 여기서 스레드라는 단어는 사용하지 않겠습니다. 하지만 실제 작업 실행은 스케줄러 인스턴스 관점에서 다른 워커에 의해 수행될 수 있습니다.
+
+리액터는 런타임에 데이터를 처리할 워커를 지정하기 위해 Scheduler라는 개념을 도입했습니다. Scheduler는 리액터 프로젝트에서 워커 또는 워커 풀을 나타내는 인터페이스입니다. publishOn 연산자를 사용하는 방법을 더 잘 이해하기 위해 아래 예제 코드를 살펴보겠습니다.
+
+```java
+public void p_190_1(){
+        Scheduler scheduler = new Scheduler() {// 1
+            @Override
+            public Disposable schedule(Runnable runnable) {
+                return null;
+            }
+
+            @Override
+            public Worker createWorker() {
+                return null;
+            }
+        };
+        Flux.range(0, 100)// 2
+                .map(String::valueOf)// 3
+                .filter(s -> s.length() > 1)// 4
+                .publishOn(scheduler)// 5
+                .map(this::calculateHash)// 6
+                .map(this::doBusinessLogic)// 7
+                .subscribe();// 8
+    }
+```
+
+위 코드에서 publishOn 메서드가 실행되고 나서 2 ~ 4단계의 작업은 메인 스레드에서 실행됩니다. 즉 해시 계산은 스레드 A에서만 실행되므로 caculateHash 및 doBusinessLogic은 메인 스레드 워커가 아닌 다른 워커에서 실행됩니다.  publishOn 연산자는런타임 실행에 초점을 맞춥니다. publishOn 연산자는 내부적으로 전용 워커가 메시지를 하나씩 처리할 수 있도록 새로운 원소를 제공하는 큐를 가지고 있습니다. 여기서 플로의 두 부분을 독립적으로 처리했습니다. 하나 중요한 점은 리액티브 스트림의 모든 원소는 하나씩 처리되므로 모든 이벤트에 순서를 엄격하게 정의할 수 있다는 것입니다. 이 속성을 직렬성이라고도 합니다. 즉 원소가 publishOn에 오면 큐에 추가되고 차례가되면 큐에서 꺼내서 처리합니다하나의 작업자가 큐를 처리하므로 원소의 순서는 예측 가능합니다.
+
+### publishOn 연산자
+
+멀티쓰레딩을 위한 리액터의 또 다른 중요한 요소는 subscribeOn 연산자 입니다. publishOn과 달리 subscribeOn을 사용하면 구독 체인에서 워커의 작업 위치를 변경할 수 있습니다. 이 연산자는 함수를 실행해 스트림 소스를 만들 때 유용하게 사용할 수 있습니다. 일반적으로 이러한 실행은 구독 시간에 수행되므로 .subscribe 메서드를 실행하기 위한 데이터 원천 소스를 제공하는 함수가 호출됩니다. 예를 들어 Mono. fromCallable을 사용해 정보를 제공하는 방법을 보여주는 예제를 살펴 보겠습니다.
+
+```java
+ObjectMapper objectMapper = ...
+String json = "{\"color" : \"Black\",\"type\" : \"BMW\"}";
+Mono.fromCallable(() -> objectMapper.readValue(json, Car.class)
+```
+
+여기서 Mono.fromCallable은 Callable<T>에서 Mono를 생성하고 실행 결과를 각 구독자에게 전달합니다. Callable 인스턴스는 .subscribe 메서드를 호출할 때 실행되므로 내부적으로 Mono.fromCallable은 다음과 같은 작업을 수행합니다.
+
+```java
+public void subscribe(Subscriber actual){
+	Subscription subscription =...
+	try{
+		T t = cacllable.call();
+		if (t == null){
+			subscription.onComplete();
+		}else{
+			subscription.onNext(t);
+			subscription.onComplete();
+		}
+	}catch (Throwable e){
+		actual.onError(
+			Operators.onOperatorError(e, actual.currentContext()));
+	}
+}
+```
+
+이 코드에서 알 수 있듯이 subscribe 메서드에서 calllable이 실행됩니다.
+이것은 publishOn을 사용해 Callable이 실행될 워커를 변경할 수 있음을 의미합니다. 다행히도 subscribeOn을 사용하면 구독을 수행할 워커를 지정할 수 있습니다. 다음 코드는 어떻게 워커를 지정하는 지 보여 줍니다.
+내부적으로 subscribeOn은 부모 Publisher에 대한 구독을 Runnable 안에서 실행합니다. 예제에서 이 Runnable은 Scheduler 타입의 scheduler 인스턴스 입니다.
+
+### parallel 연산자
+
+실행 플로 일부를 직접 처리하기 위해 스레드를 관리하는 몇 가지 중요한 연산자와 함께 리액터는 병렬 처리를 위해 parrallel 연산자를 제공하며 이 연산자는 하위 스트림에 대한 플로 분할과 분할된 프롤 간 균현 조정 역할을 합니다.
+
+```java
+        Flux.range(0,10000)
+                .parallel()
+                .runOn(Schedulers.parallel())
+                .map()
+                .filter()
+                .subscribe();
+```
+
+parrellel 연산자를 사용함으로 ParallelFlux라는  다른 유형의 Flux를 동작시킨다는 것입니다. ParallelFlux는 다수의 Flux를 추상화한 것으로 Flux 간에 데이터 크기가 균형을 이룹니다.
