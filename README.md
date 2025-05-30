@@ -1678,3 +1678,63 @@ parrellel 연산자를 사용함으로 ParallelFlux라는  다른 유형의 Flux
 - SingleScheduler를 사용하면 모든 작업을 한 개의 전용 워커에 예약할 수 있습니다. 이 스케줄러는 시간에 의존적인 방식이며, 주기적인 이벤트를 예약할 수 있습니다. 이 스케줄러는 Scheduler.single()을 호출해 생성할 수 있습니다.
 - ParallelScheduler는 고정된 크기의 작업자 풀에서 작동합니다. (기본적으로 크기는 CPU 코어 수로 제한됨) 이 스케줄러는 CPU 제한적인 작업에 적합합니다. 또한 기본적으로Flux.interval(Duration.ofSecond(1))과 같은 시간 관련 예약 이벤트 처리를 합니다. 이 스케줄러는 Scheduler.parallel()을 호출해 생성할 수 있습니다.
 - ElasticScheduler는 동적으로 작업자를 만들고 스레드 풀을 캐시합니다. 생성된 스레드 풀의 최대 개수는 제한되지 않으므로 IO 집약적인 작업에 적합합니다. 이 스케줄러는 Scheduler.elastic() 메서드를 호출해 생성할 수 있습니다.
+
+### 리액터 컨텍스트
+
+Context는 스트림을 따라 전달되는 인터페이스 입니다. Context는 런타임 단계에서 필요한 컨텍스트 정보에 액세스할 수 있도록 하는 것입니다. 이는 단일 쓰레드로 동작하는 애플리케이션이 아니기 때문에 필요합니다.
+비동기 처리 방식을 사용하면 ThreadLocal을 사용할 수 있는 구간이 매우 짧아집니다. 예를 들어, 다음과 같이 실행하면 ThreadLocal을 사용하지 못하게 됩니다.
+
+```java
+public void p_197(){
+        ThreadLocal<Map<Object,Object>> threadLocal = new java.lang.ThreadLocal<>();//1
+        threadLocal.set(new HashMap<>());// 1.1
+
+        Flux//2
+        .range(0, 10)// 2
+        .doOnNext(k ->// 2.1
+                        threadLocal
+                                .get()
+                                .put(k, new Random(k).nextGaussian()))// 2.2
+                .publishOn(Schedulers.parallel())// 2.3
+                .map(k -> threadLocal.get().get(k))// 2.4
+                .blockLast();
+    }
+```
+
+- ThreadLocal 인스턴스를 생성합니다. 또한 1.1에서 ThreadLocal에 값을 추가했기 때문에 이후 코드에서 이 값을 사용할 수 있습니다.
+- 0에서 9까지의 범위를 생성하는 FLux 스트림을 선언합니다. (2.1)
+
+```java
+public void p_197_2() throws InterruptedException {
+        Flux.range(0, 10)
+                .flatMap(k ->
+                        Mono.subscriberContext()// 1
+                                .doOnNext(context -> {// 1.1
+                                    Map<Object, Object> map = context.get("randoms");// 1.2
+                                    map.put(k, new Random(k).nextGaussian());
+                        })
+                        .thenReturn(k)// 1.3
+                )
+                .publishOn(Schedulers.parallel())
+                .flatMap(k ->
+                        Mono.subscriberContext()
+                                .map(context -> {// 2
+                                    Map<Object, Object> map = context.get("randoms");// 2.1
+                                    return map.get(k);// 2.2
+                                })
+                ).subscriberContext(context ->
+                    context.put("randoms", new HashMap())
+                )
+                .blockLast();
+        Thread.sleep(1000);
+    }
+```
+
+- 리액터의 Context에 어떻게접근하는지 대한 예가 나와 있습니다. 리액터가 제공하는 정적 연산자 subscriberContext를 사용하면 현재 스트림의 Context 인스턴스에 액세스할 수 있습니다. 예제와 같이 Context를 획득하면 (1.1) 생성된 값을 Map에 저장합니다.(1.2) 마지막으로 flatMap의 초기 매개변수를 반환합니다.
+- 스레드가 변경된 후 리액터의 Context에 다시 액세스합니다.
+  예제는 ThreadLocal을 사용한 이전 예제와 동일하지만, (2.1)에서 저장된 맵에 성공적으로 접근해 랜덤 가우스 double을 반환합니다.
+- 마지막으로 “randoms”를 만들기 위해 새로운 Context 인스턴스를 반환합니다.
+
+앞의 예제처럼 Context는 인수가 없는 Mono.subscriberContext 연산자를 통해 액세스할 수 있으며, subscriberContext(Context) 연산자를 사용해 스트림을 제공할 수 있습니다.
+
+앞의 예제에서 Context 인터페이스가 이미 Map 인터페이스와 비슷한 메서드를 가지고 있는데도 데이터를 전송하기 위해 Map을 또 사용할 필요가 있는 지 궁금할 것입니다. Context는 본질적으로 Immutable 객체라서 새로운 요소를 추가하면 Context는 새로운 인스턴스로 변경됩니다. 이러한 설계는 멀티스레딩 엑세스 모델을 고려해 이루어져있습니다. 즉 스트림에 컨텍스트를 제공할 수 있는 유일한 방법일 뿐만 아니라 조립 단계나 구독 단계를 포함해 전체 런타임 동안 사용할 수 있는 데이터를 동적으로 제공하는 유일한 방법입니다. Context가 조립 단계에서 제공되면 모든 구독자는 동일한 정적으로 제공하는 유일한 일뿐만 아니라 조립 단계나 구독 단계를 포함해 전체 런타임 동안 사용할 수 있는 방법입니다. Context가 조립 단계에서 제공되면 모든 구독자는 동일한 정적 컨텍스트를 공유하게 되며 이는 각 Subscriber가 별도의 Context를 가져야 하는 경우에는 유용하지 않을 수 있습니다. 따라서 전체 생명 주기에서 각 Subscriber에게 별도의 컨테스트가 제공될 수 있는 유일한 단계는 구독 단계 입니다.
