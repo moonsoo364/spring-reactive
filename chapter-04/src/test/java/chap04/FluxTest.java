@@ -84,4 +84,5 @@ public class FluxTest {
         Flux<String> stream = Flux.just("Hello","World","!");
         stream.subscribe(subscriber);
     }
+
 }

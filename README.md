@@ -1744,3 +1744,128 @@ public void p_197_2() throws InterruptedException {
 앞의 예제에서 Context 인터페이스가 이미 Map 인터페이스와 비슷한 메서드를 가지고 있는데도 데이터를 전송하기 위해 Map을 또 사용할 필요가 있는 지 궁금할 것입니다. Context는 본질적으로 Immutable 객체라서 새로운 요소를 추가하면 Context는 새로운 인스턴스로 변경됩니다. 이러한 설계는 멀티스레딩 엑세스 모델을 고려해 이루어져있습니다. 즉 스트림에 컨텍스트를 제공할 수 있는 유일한 방법일 뿐만 아니라 조립 단계나 구독 단계를 포함해 전체 런타임 동안 사용할 수 있는 데이터를 동적으로 제공하는 유일한 방법입니다. Context가 조립 단계에서 제공되면 모든 구독자는 동일한 정적으로 제공하는 유일한 일뿐만 아니라 조립 단계나 구독 단계를 포함해 전체 런타임 동안 사용할 수 있는 방법입니다. Context가 조립 단계에서 제공되면 모든 구독자는 동일한 정적 컨텍스트를 공유하게 되며 이는 각 Subscriber가 별도의 Context를 가져야 하는 경우에는 유용하지 않을 수 있습니다. 따라서 전체 생명 주기에서 각 Subscriber에게 별도의 컨테스트가 제공될 수 있는 유일한 단계는 구독 단계 입니다.
 
 이전 절의 내용을 다시 떠올려보면 구독 단계 동안 Subscriber는 Publisher 체임을 따라 스트림 아래쪽에서부터 위쪽으로 이동하면서 추가 런타임 로직을 적용하는 로컬 Subscriber로  각 단계를 래핑합니다. 이 프로세스를 변경하지 않고 스트림을 통해 추가 Context 객체를 전달하기 위해 리액터는 CoreSubscriber라는 특정 Subscriber 인터페이스 구현체를 사용합니다. CoreSubscriber는 내부 필드로 Context를 전달할 수 있습니다. 다음은 CoreSubscriber 인터페이스의 내부입니다.
+
+## 스프링 부트2에서 리액티브
+
+이 장에서는 스프링 부트의 중요성과 그 특징에 관해 설명하고자 합니다. 또한 스프링 프레임워크 5와 스프링 부트2로 인한 변화를 알아보고 스프링 생태계가 리액티브 프로그래밍 접근 방식을 어떻게 받아들였는 지 살펴볼 예정입니다.
+
+이 장에서는 다음 주제를 다룹니다.
+
+- 스프링 부트가 해결한 문제와 해결방법
+- 스프링 부트의 필수 요소
+- 스프링 부트 2.0 및 스프링 프레임워크의 반응성
+
+### 제어의 역전
+
+5가지 방법으로 컨테이너를 설정할 수 있습니다.
+
+```java
+@Slf4j
+public class SpringApp {
+    public static void main(String[] args) {
+        GenericApplicationContext context = new GenericApplicationContext();
+        new XmlBeanDefinitionReader(context).loadBeanDefinitions("services.xml");
+        new GroovyBeanDefinitionReader(context).loadBeanDefinitions("services.groovy");
+        new PropertiesBeanDefinitionReader(context).loadBeanDefinitions("services.properties");
+        context.refresh();
+
+        System.out.println(context.getBean("xmlBean"));
+        System.out.println(context.getBean("groovyBean"));
+        System.out.println(context.getBean("propsBean"));
+
+    }
+}
+```
+
+스프링 프레임워크는 빈을 유연하게 구성할 수 있게 해주지만 문제가 있습니다. 대표적인 문제 중 하나는 쉽게 디버깅할 수 없는 XML 설정입니다. 또 다른 문제는 Intellij 혹은 spring suite같은 도구 없는 XML 설정의 정확성을 검증할 수 없다는 것 입니다. 마지막으로 코딩 스타일 부재 및 개발 규칙 적용의 어려움으로 대규모 프로젝트의 복잡성이 크게 증가합니다. Bean 정의에 대한 접근 방식이 적절하지 않으면 팀의 개발자가 XML에서 Bean을 설정하고 다른 개발자가 properties 파일을 통해 설정을 변경할 수 있기 때문에 프로젝트 관리가 복잡해질 수 있습니다.
+
+단순한 IOC와 함께 스프링 프레임워크는 스프링 데이터 모듈과 같은 훨씬 복잡한 기능을 제공합니다. 두 모듈 모두 응용 프로그램을 실행하기까지 많은 설정이 필요합니다. 문제는 응용 프로그램이 플랫폼 독립적이어야 할 때 발생합니다. 비즈니스 관련 코드에 비해 설정 및 상용구 코드가 많은 비중을 차지하기 때문입니다.
+
+예를 들어 간단한 웹 애플리케이션을 구성하기 위해 최소 7행의 코드가 필요합니다.
+
+```java
+public class MyWebApplication implements WebApplicationInitializer {
+    @Override
+    public void onStartup(javax.servlet.ServletContext servletContext) throws ServletException {
+        AnnotationConfigWebApplicationContext cxt = new AnnotationConfigWebApplicationContext();
+        cxt.register();
+        cxt.refresh();
+        //DispatcherServlet ...
+        //ServletRegistation registration...
+        // registration.setLoadOnStartup(1);
+        // regstration.addMapping("/app/*);
+    }
+```
+
+이 코드에는 보안 설정이나 콘텐츠 렌더링과 가틍ㄴ 필수 기능이 포함돼 있지 않습니다. 언제부터인가 각각의 스프링 기반 애플리케이션이 최적화되지 않고 개발자들이 추가적인 작업을 해야 하는 비슷한 코드를 가지게 됐고 결과적으로 아무런 이유 없이 비용을 낭비합니다.
+
+### Spring Roo를 사용해 애플리케이션 개발 속도 향상
+2009년 초 Spring Roo라는 새로운 프로젝트가 발표됐습니다. 이 프로젝트는 신속한 응용 프로그램 개발을 목표로 했습니다. Spring Roo의 핵심 아이디어는 설정보다 관습(convention-over-configuration) 접근법을 사용하는 것입니다. 이를 위해 Spring Roo는 인프라 및 도메인 모델을 초기화하고, 몇 가지 명령으로 Rest API를 작성할 수 있는 커맨드라인 사용자 인터페이스를 제공합니다. 현장에서의 프로젝트의 구조가 복잡해지거나 사용된 기술이 스프링 프레임워크의 범위를 벗어나면서 문제가 발생했습니다. 결정적으로 Spring Roo는 일반적인 용도로 인가가 없었습니다. 결국 신속한 응용 프로그램 개발에 대한 고민은 해결이 되지 못했습니다.
+
+### 빠르게 성장하는 애플리케이션에대한 핵심 요소로서의 스프링 부트
+
+2012년 말 마이크 영스트롬은 스프링 아키텍처 전체를 변경하고, 스프링 프레임 워크의 사용을 단순화해 개발자가 비즈니스 로직을 보다 빨리 구축할 수도록 하는 의견을 제시 했습니다. 그 제안은 거부됐지만 스프링 팀이 스프링 프레임 워크 사용을 극적으로 단순화하는 새로운 프로젝트를 만들도록 동기 부여를 했습니다. 2013년 중반에 스프링 팀은 스프링 부트라는 프로젝트를 출시 했습니다. 스프링 부트의 핵심 아이디어는 애플리케이션 개발 프로세스를 단순화하고 사용자가 추가적인 인프라 설정 없이 새 프로젝트를 시작할 수 있도록 하는 것 입니다.
+
+이와 함께 스프링 부트는 컨테이너가 없이 실행되는 웹 애플리케이션 아이디어와 실행 가능한 fat JAR 기술을 도입했습니다. 이 방법을 사용하면 한줄의 명령으로 앱을 실행할 수 있습니다. 다음의 예제는 스프링 부트 웹 애플리케이션을 보여줍니다.
+
+```java
+@SpringBootApplication
+public class MyApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MyApplication.class, args);
+    }
+}
+```
+
+여기서 가장 중요한 부분은 IOC 컨테이너를 실행하는 데 필요한 `@SpringBootApplication` 이라는 어노테이션이 있다는 것입니다. MVC서버 뿐만 아니라다른 응용 프로그램 구성 요소도 있습니다. 우선 스프링 부트는 그래이들이나 메이븐과 같은 현대 빌드 툴과 모듈들의 묶음 입니다.
+
+일반적으로 스프링 부트는 두 개의 핵심 모듈에 의존합니다.
+
+첫 번째는 Spring-IOC 컨테이너와 관련된 모든 가능한 기본 구성과 함께 제공되는 spring-boot 모듈입니다.
+
+두 번째는 spring-boot-autoconfigure인데, 이 모듈은 스프링 데이터, 스프링 MVC, 스프링 웹플럭스 등과 같은 기존 스프링 프로젝트에서 필요한 모든 설정을 제공합니다. 언뜻 보기에 모든 사전 정의된 설정이 그 필요와 상관없이 모두 활성화된 것처럼 보입니다. 그러나 실제로는 그렇지 않으며 특정 의존성이 추가될 때까지 모든 설정은 비활성화 되어 있습니다. 스프링 부트는 일반적으로 이름에 starter라는 단어가 들어 있는 모듈에 대한 새로운 개념을 정의합니다. 기본적으로 starter는 자바 코드에 포함하지 않지만, spring-boot-autoconfigure에 의해 모든 관련 의존성을 가져와 설정을 활성화 합니다. 스프링 부트를 사용하면 별도의 노력 없이도 필요한 모든 인프라 설정을 완료할 수 있는 -starter-web, starter-data-jpa 모듈을 사용할 수 있습니다. 쉽게 설정할 수 있는 기본 설정과 함꼐 스프링 부트는 사용자 정의 starter를 만들기 위한 연쇄형 API를 제공합니다.
+
+### 스프링 부트 2.0에서 리액티브
+
+방응성이 스프링 생태계에 어떻게 반영되는 지 알아보겠습니다. 스프링 MVC와 스프링 데이터 모듈의 블로킹 특성으로 인해 프로그래밍 패러다임을 리액티브로 전환하는 것만으로는 별다른 이점이 없었습니다. 그래서 스프링 팀은 이러한 모듈 내부의 전체 패러다임을 변경하기로 결정했습니다. 이를 위해 스프링 생태계는 다수의 리액티브 모듈을 제공합니다. 이 절에서는 이 모듈을 간단히 다루겠습니다.
+
+### 스프링 코어 패키지에서의 리액티브
+
+스프링 코어는 스프링 생태계의 핵심 모듈입니다. 스프링 프레임워크 5.x에서 소개된 눈에 띄는 개선 사항 중 하나는  RxJava 1/2 및 리액터 프로젝트 3과 같은 리액티브 스트림 및 리액티브 라이브러리에 대한 기본 지원이었습니다.
+
+### 리액티브 타입으로 현 변환 지원
+
+리액티브 스트림 스펙을 지원하기 위한 가장 대표적인 개선 사항 중 하난느 ReactiveAdapter 및 ReactiveAdapterRegistry의 도입입니다. ReactorAdapter 클래스는 다음 코드와 같이 리액티브 타입 변환을 위한 두가지 메서드를 제공합니다.
+
+```java
+public class ReactiveAdapter {
+...
+	   public <T> Publisher<T> toPublisher(@Nullable Object source) {
+	        if (source == null) {
+	            source = this.getDescriptor().getEmptyValue();
+	        }
+	
+	        return (Publisher)this.toPublisherFunction.apply(source);
+	    }
+	
+	    public Object fromPublisher(Publisher<?> publisher) {
+	        return this.fromPublisherFunction.apply(publisher);
+	    }
+	}
+}
+```
+
+이 예제에서는 ReactiveAdapter는 임의의 타입을 Publisher<T>로 변환하거나 임의의 Publisher<T>를 Object로 변환하는 두 가지 메서드를 보여줍니다. 예를 들어, RxJava 2의 Maybe 타입에 대한 변환을 제공하기 위해 다음과 같은 방식으로 자체 ReactiveAdapter를 만들 수 있습니다.
+
+```java
+public MaybeReactiveAdapter(){
+        super(
+                ReactiveTypeDescriptor.singleOptionalValue(Maybe.class,Maybe::empty),
+                rawMaybe -> ((Maybe<?>) rawMaybe).toFlowable(),
+                publisher -> Flowable.fromPublisher(publisher)
+                        .singleElement()
+        );
+    }
+```
+
+
