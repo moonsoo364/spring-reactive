@@ -1706,28 +1706,32 @@ public void p_197(){
 
 ```java
 public void p_197_2() throws InterruptedException {
-        Flux.range(0, 10)
-                .flatMap(k ->
-                        Mono.subscriberContext()// 1
-                                .doOnNext(context -> {// 1.1
-                                    Map<Object, Object> map = context.get("randoms");// 1.2
-                                    map.put(k, new Random(k).nextGaussian());
-                        })
-                        .thenReturn(k)// 1.3
-                )
-                .publishOn(Schedulers.parallel())
-                .flatMap(k ->
-                        Mono.subscriberContext()
-                                .map(context -> {// 2
-                                    Map<Object, Object> map = context.get("randoms");// 2.1
-                                    return map.get(k);// 2.2
-                                })
-                ).subscriberContext(context ->
-                    context.put("randoms", new HashMap())
-                )
-                .blockLast();
-        Thread.sleep(1000);
-    }
+    Flux.range(0, 10)
+            .flatMap(k ->
+                    Mono.subscriberContext()
+                            .doOnNext(context -> {
+                                Map<Object, Object> map = context.get("randoms");
+                                double value = new Random(k).nextGaussian();
+                                map.put(k, value);
+                                System.out.printf("[Step1] k = %d, generated = %.4f%n", k, value);
+                            })
+                            .thenReturn(k)
+            )
+            .publishOn(Schedulers.parallel())
+            .flatMap(k ->
+                    Mono.subscriberContext()
+                            .map(context -> {
+                                Map<Object, Object> map = context.get("randoms");
+                                Object value = map.get(k);
+                                System.out.printf("[Step2] k = %d, retrieved = %.4f%n", k, value);
+                                return value;
+                            })
+            )
+            .subscriberContext(context -> context.put("randoms", new HashMap<>()))
+            .blockLast();
+
+    Thread.sleep(1000); // 병렬 스케줄러의 작업을 기다리기 위해
+}
 ```
 
 - 리액터의 Context에 어떻게접근하는지 대한 예가 나와 있습니다. 리액터가 제공하는 정적 연산자 subscriberContext를 사용하면 현재 스트림의 Context 인스턴스에 액세스할 수 있습니다. 예제와 같이 Context를 획득하면 (1.1) 생성된 값을 Map에 저장합니다.(1.2) 마지막으로 flatMap의 초기 매개변수를 반환합니다.
@@ -1738,3 +1742,5 @@ public void p_197_2() throws InterruptedException {
 앞의 예제처럼 Context는 인수가 없는 Mono.subscriberContext 연산자를 통해 액세스할 수 있으며, subscriberContext(Context) 연산자를 사용해 스트림을 제공할 수 있습니다.
 
 앞의 예제에서 Context 인터페이스가 이미 Map 인터페이스와 비슷한 메서드를 가지고 있는데도 데이터를 전송하기 위해 Map을 또 사용할 필요가 있는 지 궁금할 것입니다. Context는 본질적으로 Immutable 객체라서 새로운 요소를 추가하면 Context는 새로운 인스턴스로 변경됩니다. 이러한 설계는 멀티스레딩 엑세스 모델을 고려해 이루어져있습니다. 즉 스트림에 컨텍스트를 제공할 수 있는 유일한 방법일 뿐만 아니라 조립 단계나 구독 단계를 포함해 전체 런타임 동안 사용할 수 있는 데이터를 동적으로 제공하는 유일한 방법입니다. Context가 조립 단계에서 제공되면 모든 구독자는 동일한 정적으로 제공하는 유일한 일뿐만 아니라 조립 단계나 구독 단계를 포함해 전체 런타임 동안 사용할 수 있는 방법입니다. Context가 조립 단계에서 제공되면 모든 구독자는 동일한 정적 컨텍스트를 공유하게 되며 이는 각 Subscriber가 별도의 Context를 가져야 하는 경우에는 유용하지 않을 수 있습니다. 따라서 전체 생명 주기에서 각 Subscriber에게 별도의 컨테스트가 제공될 수 있는 유일한 단계는 구독 단계 입니다.
+
+이전 절의 내용을 다시 떠올려보면 구독 단계 동안 Subscriber는 Publisher 체임을 따라 스트림 아래쪽에서부터 위쪽으로 이동하면서 추가 런타임 로직을 적용하는 로컬 Subscriber로  각 단계를 래핑합니다. 이 프로세스를 변경하지 않고 스트림을 통해 추가 Context 객체를 전달하기 위해 리액터는 CoreSubscriber라는 특정 Subscriber 인터페이스 구현체를 사용합니다. CoreSubscriber는 내부 필드로 Context를 전달할 수 있습니다. 다음은 CoreSubscriber 인터페이스의 내부입니다.
