@@ -1868,4 +1868,61 @@ public MaybeReactiveAdapter(){
     }
 ```
 
+## 6 리액티브 웹의 핵심
+리액티브 API 구축하기
 
+```java
+interface ServerHttpRequest {// 1
+	...
+	Flux<Databuffer> getBody(); // 1.1
+	...
+}
+
+interface ServerHttpResponse {// 2
+	...
+	Mono<void> writeWith(Publisher<? extends DataBuffer> body);// 2.1
+	...
+}
+ interface ServerWebExchange {// 3
+
+    ServerHttpRequest getRequest();// 3.1
+
+    ServerHttpResponse getResponse();// 3.2
+
+    ...
+
+    Mono<WebSession> getSession();// 3.3
+    }
+```
+
+코드에 대한 설명
+
+1. 수신 메시지를 나타내는 인터페이스 초안입니다. 보는 바와 같이, (1.1)에서 수신되는 바이트에 대한 엑세스를 제공하는 핵심 추상화는 Flux입니다. 정의에 의하면 이것은 리액티브 엑세스가 있음을 의미합니다. 요청 본문과 함께 모든 HTTP 요청에는 일반적으로 요청 헤더, 패스, 쿠키 및 쿼리 매개변수에 대한 정보가 포함돼 있으므로 각 정보를 해당 인터페이스 또는 하위 인터페이스에서 별도의 메서드로 표시할 수 있습니다.
+2. 응답 인터페이스의 초안입니다. (2.1)을 보면 ServerHttpRequest#getBody 메서드와 달리 Publisher<? extends> 데이터 타입을 매개 변수로 받을 수 있습니다. 이 경우 Publisher 타입은 특정 리액티브 타입과의 결합도를 낮춰서 코드의 유연성을 확보할 수 있습니다. 그에 따라 적합한 인터페이스 구현체를 골라서 사용할 수 있고 비즈니스 로직을 프레임워크에서 분리할 수 있습니다. 이 메서드는 네트워크에 데이터를 보내는 비동기 프로세스인 Mono<Void>를 반환합니다. 여기서 중요한 점은 주어진 Mono를 구독하는 경우에만 데이터를 보내는 프로세스가 실행된다는 것입니다. 또한 수신 서버는 전송 프로토콜의 제어 흐름에 따라 배압을 제어할 수 있습니다.
+3. ServerWebExchange 인터페이스 선언입니다. 여기서 인터페이스는 HTTP 요청 및응답 인스턴스의 컨테이너 역할을 합니다.인터페이스는 인프라 스트럭처 역할을 수행하고 HTTP 상호 작용을 처리할 뿐만 아니라 프레임워크와 관련된 정보를 저장할 수 있습니다. 예를 들어(3.3)과 같이 요청에서 추출한 WebSession에 대한 정보를 포함할 수 있습니다.
+
+잠재적으로 이 인터페이스들은 서블릿에 있는 API에 있는 것과 유사합니다. 리액티브 스트림의 비동기 논블로킹 특성으로 인해 스트리밍 기반의 기능을 즉시 사용할 수 있고 얽히고선킨 콜백 기반 API와 콜백 지옥으로부터 보호해줍니다.
+
+핵심적인 인터페이스와 별도로 전체 흐름을 수행하기 위해서는 다음과 같이 요청-응답 핸들러 및 필터 API를 정의해야 합니다.
+
+```java
+public interface WebHandler {//1
+    Mono<Void> handle(ServerWebExchange var1);
+}
+public interface WebFilter {//2
+    Mono<Void> filter(ServerWebExchange var1, WebFilterChain var2);
+}
+public interface WebFilterChain {//3
+    Mono<Void> filter(ServerWebExchange var1);
+}
+```
+
+1. 이것은 WebHandler라고 하는 HTTP 상호 작용의 핵심 진입점입니다. 이 인터페이스가 DispatcherServlet 역할을 하므로 그 위에 모든 구현을 할 수 있습니다. 인터페이스의 책임은 요청 핸들러를 찾아서 ServerHttpResponse에 실행하므로 그 위에 모든 구현을 할 수 있습니다. 인터페이스의 책임은 요청 핸들러를 찾아서 ServerHttpResponse에 실행 결과를 기록하는 뷰의 렌더러를 구선하는 것이므로 DispatchServlet#handle 메서드는 결과를 반환하지 않아도 됩니다. 그러나 처리가 완료되면 알림을 받는 것이 유용할 수 있습니다. 이와 같은 알림에 의존함으로써 지정한 시간 내 알림을 받지 못하면 실행을 취소할 수 있습니다. 이러한 이유로 메서드는 반드시 Void 타입 Mono를 반환하게 되어 있어 결과를 반드시 처리하지 않고도 비동기 처리가 완료될 때까지 기다릴 수 있습니다.
+2. Servelr API와 유사하게 몇 개의 WebFilter 인스턴스 체인에 연결할 수 있는 인터페이스 입니다.
+3. 리액티브 Filter에 대한 표현 입니다.
+
+또한 이 계층에서는 ServerWebExchange를 만들어야 합니다. 특히 세션 저장소 Locale 확인 및 이와 유사한 인프라들이 이 계층에 존재합니다.
+
+
+### 리액티브 웹 MVC 프레임워크
+스프링 웹 MVC 모듈의 핵심은 애노테이션 기반 프로그래밍 모델입니다. 따라서 리액티브 방식으로 웹을 대체하더라도 애노테이션 기반 모델은 지원해야합니다. 새로운 리액티브 MVC 인프라를 구축하는 대신 기존 MVC 인프라를 재사용하고 동기 통신을 Flux, Mono 및 Publisher와 같은 리액티브 타입으로 교체 할 수도 있습니다.
