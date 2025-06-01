@@ -1,6 +1,7 @@
 package client;
 
 import org.springframework.http.client.reactive.ClientHttpConnector;
+import org.springframework.http.client.reactive.JettyClientHttpConnector;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -21,7 +22,9 @@ public class DefaultPasswordVerificationService
 
     @Override
     public Mono<Void> check(String raw, String encoded) {// 3
-        //ClientHttpConnector
+        // 대용량 파일 다운로드, 바이트 스캔 등에서 ClientHttpConnector를 활용할 수 있다.
+        //JettyClientHttpConnector  connector = new JettyClientHttpConnector();
+
         return webClient
             .post()// 1
             .uri("/password")// 3.1
