@@ -1926,3 +1926,120 @@ public interface WebFilterChain {//3
 
 ### 리액티브 웹 MVC 프레임워크
 스프링 웹 MVC 모듈의 핵심은 애노테이션 기반 프로그래밍 모델입니다. 따라서 리액티브 방식으로 웹을 대체하더라도 애노테이션 기반 모델은 지원해야합니다. 새로운 리액티브 MVC 인프라를 구축하는 대신 기존 MVC 인프라를 재사용하고 동기 통신을 Flux, Mono 및 Publisher와 같은 리액티브 타입으로 교체 할 수도 있습니다.
+
+```java
+public interface HandlerMapping {// 1
+		/* HandlerExecutionChain gatHandler(HttpServletRequest request) */ // 1.1
+    Mono<Object> getHandler(ServerWebExchange var1);// 1.2
+}
+public interface HandlerAdapter {// 2
+		/* ModelAndView handle(HttpServletRequest request, HttpServletResponse response) */ // 2.1
+    Mono<HandlerResult> handle(ServerWebExchange var1, Object var2);// 2.2
+}
+```
+
+1. 리액티브 HandlerMapping 인터페이스의 선언입니다. 여기에는 이전 웹 MVC구형과 개선된 MVC 구현의 차이점을 강조하기 위해 두 가지 메서드의 선언이 코드에 포함돼 있습니다. (1.1)은 구버전 구현입니다. 반면 새 인터페이슨느 굵게 강조 표시했습니다. (1.2) 보다시피 메서드는 유사합니다. 차이점은 마지막 하나가 Mono 유형을 반환해 리앧티브 동작을 활성화한다는 것입니다.
+2. 리액티브 버전의 HandlerAdapter 인터페이스 입니다. 코드에서 볼 수 있듯이 handle 메서드의 리액티브 버전은 ServerWebExchange 클래스가 요청 인스턴스와 응답 인스턴스를 동시에 결합해주는 덕탣에 좀 더 간결해졌습니다. (2.2)에서 이 메서드는 ModelAndView대신 HandlerResult의 Mono를 반환합니다. 알다시피 ModelAndView는 상태 코드, Model 및 View와 같은 정보를 제공합니다. HandlerResult 클래스에는 상태 코드를 제외하고는 동일한 정보가 들어 있습니다. HandlerReusult는 직접 실행 결과를 제공하므로 더 쓸모가 있습니다. 또한 DispatherHandler가 핸들러를 쉽게 찾을 수 있도록 해줍니다. 웹 MVC에서 View는 템플릿 역활뿐만 아니라 객체 렌더링도 담당합니다. 또한 결과를 렌더링하는 역할도 있어서 웹 MVC에서 그 역할이 약간 모호할 수 있습니다. 불행히도 이렇게 한 개의 클래스가 동시에 여러 가지 역할을 수행하는 것은 비동기 처리 방식을 쉽게 적용할 수 없습니다. 이 경우 결과가 일반 자바 객체일 때 뷰 검색은 해당 클래스에서 직접 처리되지 않고 HandlerAdapter에 의해 수행됩니다. 그렇게 때문에 역할을 명확히 하는 것이 낫습니다.
+
+이 단계를 따르면 전체 실행 계층 구조를 손상시키지 않으면서 기존 설계를 보존하고 최소한의 변경으로 기존 코드를 재사용할 수 있습니다.
+
+실제 웹 스택을 구현하고 요청의 처리 과정을 변경하기 위해 지금까지 수행한 모든 단계를 집약해서 실제 구현까지 고려한 다음 디자인을 제안합니다.
+1. 기본 서버 엔진에서 처리하는 요청 입력입니다. 보시다시피 서버 엔진은 서블릿 API 기반 서버에만 국한되지 않으며 네티 및 언더토와 같은 엔진도 포함했습니다. 각 서버 엔진에는 자체적으로 요청을 처리할 수 있는 어댑터가 있습니다. 이 어댑터는 HTTP 요청 및 HTTP 응답의 내부 표현을 ServerHttpRequest 및 ServerHttpResponse에 매핑합니다.
+2. ServletHttpRequest, ServerHttpResponse, 사용자 세션 및 관련 정보를 ServerWebExchange 인스턴스로 결합하는 HttpHandler 계층입니다.
+3. WebFilterChain 계층이며 정의된 WebFilter를 체인으로 구성합니다. 그런 다음 WebFilterChain은 연결된 WbFilter 인스턴스의 WebFilter 메서드를 실행해 입력받은 ServerWebExchange를 필터링 합니다.
+4. 모든 필터 적용이 완료되면 WebFilterChain이 WebHandler 인스턴스를 호출합니다.
+5. 다음 단계는 HandlerMapping의 인스턴스를 찾고 적합한 인스턴스를 호출하는 것입니다. 이 예에서는 RouterFunctionMapping와 잘 알려진 RequestMappingHandlerMapping 및 HandlerMapping 리소스와 같은 몇가지 HandlerMapping 인스턴스를 보여줍니다. 여기서 새로운 HandlerMapping 인스턴스는 웹플럭스 모듈에서 처음 소개 됐으며 단순한 기능 요청 처리를 넘어서는 RouterFunctionMapping입니다. 그 기능은은 다음 절에서 다루겠습니다.
+6. RequestMappingHandlerAdapter 단계는 이전과 같은 기능을 하지만 리액티브 상호 작용을 처리하기 위해 리액티브 상호 작용을 처리하기 위해 리액티브 스트림을 사용합니다.
+
+앞의 그림은 웹플럭스 모듈의 기본 처리 흐름을 간략하게 보여줍니다. 웹플럭스 모듈에서 기본 서버 엔진은 네티입니다. 또한 서버 엔진은 클라이언트와 서버 상이의 비동기 논블로킹 상호 작용을 제공합니다. 이것은 스프링 웹플럭스가 제공하는 리액티브 프로그래밍 패러다임에 더 적합하다는 것을 의미 합니다. 기본 탑재된 네티가 웹플럭스를 처리하귀 위한 좋은  서버 엔진이기는 하지만 프레임워크는 선택할 수 있는 유연성을 제공합니다.
+
+### 웹플럭스로 구현하는 순수한 함수형 웹
+
+웹 플럭스는 웹 MVC와 상당 부분 비슷하지만 많은 기능이 새롭게 추가됐습니다. 소규모 마이크로서비스의 활성화, 아마존 람다 등 유사한 클라우드 서비스를 보편적으로 사용하는 시점에는 개발자들이 거의 동일한 프레임워크 설정으로 이루어진 간단한 응용 프로그램을 쉽게 만들 수 있게 하는 것이 중요합니다. Vetr.x나 Ratpack과 같은 경쟁 프레임워크를 더욱 매력적으로 만들어준 특징 중 하나는 함수적인 라우팅 매핑과 복잡한 요청 라우팅 로직을 작성할 수 있는 내장 API를 이용해 경량 애플리케이션을 개발할 수 있게 해줬기 때문입니다. 웹플럭스 모듈에는 이를 통합하기로 했고 또한 순수하게 함수적인 라우팅의 결합은 새로운 리액티브 프로그래밍 접근법에 잘 부합 합니다. 그러면 다음 예제를 통해 함수적 접근 방식을 사용해 복잡한 라우팅을 작성하는 방법을 살펴보겠습니다.
+
+```java
+import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.web.reactive.function.server.RequestPredicates.*;
+import static org.springframework.web.reactive.function.server.RouterFunctions.nest;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+
+@SpringBootApplication
+public class DemoApplication {
+    final ServerRedirectHandler serverRedirectHandler = new ServerRedirectHandler();
+
+    public static void main(String[] args) {
+        Hooks.onOperatorDebug();
+        SpringApplication.run(DemoApplication.class,args);
+    }
+
+    @Bean
+    public RouterFunction<ServerResponse> routes(OrderHandler orderHandler) {
+        return
+                nest(path("/orders"),// 1
+                        nest(accept(APPLICATION_JSON),
+                                route(GET("/{id}"), orderHandler::get)// 2
+                                        .andRoute(method(HttpMethod.GET), orderHandler::list)
+                        )
+                                .andNest(contentType(APPLICATION_JSON),
+                                        route(POST("/"), orderHandler::create)// 3
+                                )
+                                .andNest((serverRequest) -> serverRequest.cookies()
+                                                .containsKey("Redirect-Traffic"),// 4
+                                        route(all(), serverRedirectHandler)
+                                )
+                );
+    }
+}
+```
+
+1. `path(”/orders”)`→ 모든 /orders/** 경로에 대해 하위 조건 설정
+2. `GET (“/{id}” )`→ 이 경로와 메서드에 해당하면 orderHandler.get 호출
+3. `POST (“/”)` → 루트 경로에 POST 요청이면 create 호출
+4. 커스텀 predicate 요청에 쿠키 “Redirect-Traffic” 이 있으면 해당 핸들러 실행
+
+앞의 예제에서는 응용 프로그램의 웹 API를 선언하는 다른 방법을 사용했습니다.  이 기법은 함수적 방법을 이용해 핸들러 선언을 할 수 있도록 해주며, 모든 경로 매핑을 한 군데서 명시적을 관리할 수 있게 해줍니다. 또한 이전에 사용된 것과 같은 API를 사용해 입력 요청에 대한 Predicates를 쉽게 작성할 수 있습니다.
+
+새로운 함수형 웹에서는 요청 및 응답을 처리하는 새로운 방법을 도입했습니다. 다음 예제는 OrderHandler 구현의 일부를 보여줍니다.
+
+```java
+@Service
+@RequiredArgsConstructor
+public class OrderHandler {// 1
+
+    final OrderRepository orderRepository;
+
+        public Mono<ServerResponse> create(ServerRequest request){// 2
+        return request
+                .bodyToMono(Order.class)// 2.1
+                .flatMap(orderRepository::save)
+                .flatMap(o ->
+                        ServerResponse.created(URI.create("/orders"+o.getId()))// 2.2
+                                .build()
+                );
+    }
+  }
+  
+```
+
+위 코드의 흐름을 다시 보면
+
+```java
+return request
+    .bodyToMono(Order.class)                // ① 요청 본문을 논블로킹으로 읽음
+    .flatMap(orderRepository::save)        // ② 논블로킹 방식 DB save
+    .flatMap(o ->
+        ServerResponse.created(URI.create("/orders" + o.getId()))
+            .build()                        // ③ 응답 생성도 논블로킹
+    );
+
+```
+
+각 단계는:
+
+- `bodyToMono(...)`: Netty 버퍼를 **논블로킹으로 읽음**. 내부적으로 `DataBufferUtils`나 Jackson2가 사용됨
+- `orderRepository::save`: 만약 **Reactive Repository**(`R2DBC`, `MongoReactiveRepository`, etc)를 사용하면 **논블로킹**
+- `ServerResponse.created(...)`: 이는 응답 생성이며, 논블로킹따라서 이 흐름은 단일 스레드에서 실행되지만, 블로킹 작업은 발생하지 않습니다.
+
+스프링 생태계의 전체 기능이 중복될 가능성이 있기 때문에 애플리케이션의 전체 시작 시간을 줄여야하는 경우도 있습니다. 예를 들어, 사용자 비밀번호를 검증하는 서비스를 구축한다고 가정합시다. 일반적으로 이런 서비스는 입력받은 암호를 해싱한 다음 저장된 암호와 비교되기 때문에 CPU 사용량이 높습니다. 서비스를 만들기 위해 유일하게 필요한 기능은 스프링 시큐리티의 PasswordEncoder 인터페이스 뿐입니다. PasswordEndoder#Matchs 메서드를 사용해 인코딩된 비밀번호와 원시 비밀번호를 비교할 수 있습니다.
+
+다행히도 함수형 웹 프레임워크를 사용하면 전체 스프링 인프라를 시작하지 않고도 웹 응용프로그램을 빌드할 수 있습니다. 어떻게 이것이 가능한지 이해하기 위해 다음 예제를 살펴보겠습니다.

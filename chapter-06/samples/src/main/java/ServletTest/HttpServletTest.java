@@ -2,6 +2,8 @@ package ServletTest;
 
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.web.reactive.HandlerAdapter;
+import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
@@ -15,5 +17,7 @@ public class HttpServletTest {
 //    WebFilter
 //    WebFilterChain
 //    HttpHandler
+//    HandlerMapping
+//    HandlerAdapter
 
 }
