@@ -2043,3 +2043,108 @@ return request
 스프링 생태계의 전체 기능이 중복될 가능성이 있기 때문에 애플리케이션의 전체 시작 시간을 줄여야하는 경우도 있습니다. 예를 들어, 사용자 비밀번호를 검증하는 서비스를 구축한다고 가정합시다. 일반적으로 이런 서비스는 입력받은 암호를 해싱한 다음 저장된 암호와 비교되기 때문에 CPU 사용량이 높습니다. 서비스를 만들기 위해 유일하게 필요한 기능은 스프링 시큐리티의 PasswordEncoder 인터페이스 뿐입니다. PasswordEndoder#Matchs 메서드를 사용해 인코딩된 비밀번호와 원시 비밀번호를 비교할 수 있습니다.
 
 다행히도 함수형 웹 프레임워크를 사용하면 전체 스프링 인프라를 시작하지 않고도 웹 응용프로그램을 빌드할 수 있습니다. 어떻게 이것이 가능한지 이해하기 위해 다음 예제를 살펴보겠습니다.
+
+```java
+import static org.springframework.web.reactive.function.server.RequestPredicates.POST;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+
+public class StandaloneApplication {// 1
+    static Logger LOGGER = LoggerFactory.getLogger(StandaloneApplication.class);
+
+    public static void main(String... args) {// 2
+        long start = System.currentTimeMillis();// 2.1
+        HttpHandler httpHandler = RouterFunctions.toHttpHandler(// 2.1
+                routes(
+                new BCryptPasswordEncoder(18)// 2.2
+        ));
+        ReactorHttpHandlerAdapter reactorHttpHandler = // 2.3
+                new ReactorHttpHandlerAdapter(httpHandler);
+
+        DisposableServer server = HttpServer.create()// 3
+                .host("localhost")// 3.1
+                .port(8080)// 3.2
+                .handle(reactorHttpHandler)// 3.3
+                .bindNow();// 3.4
+
+        LOGGER.debug("Started in " + (System.currentTimeMillis() - start) + " ms");
+
+        server.onDispose()
+                .block();
+    }
+
+    public static RouterFunction<ServerResponse> routes(PasswordEncoder passwordEncoder) {// 4
+        return
+                route(POST("/password"),// 5
+                        request -> request
+                                .bodyToMono(PasswordDTO.class)// 5
+                                .map(p -> passwordEncoder// 5.1
+                                        .matches(p.getRaw(), p.getSecured()))// 5.2
+                                .flatMap(isMatched -> isMatched // 5.3
+                                        ? ServerResponse.ok()
+                                        .build()
+                                        : ServerResponse.status(HttpStatus.EXPECTATION_FAILED)
+                                        .build()
+                                )
+                );
+    }
+}
+```
+
+1. 메인 애플리케이션 입니다 스프링 부트 애노테이션이 없습니다.
+2. 여기서 변수 초기화와 함께 메인 메서드 선언을 합니다. 2.2에서 routes 메서드를 호출한 다음 RouterFunction을 HttpHandler로 변환합니다. 그런 다음 (2.3)에서 ReactorHttpHandlerAdapter 라는 HttpHandler 어댑터를 사용합니다.
+3. 리액터-네티 API의 일부인 HttpServer 인스턴스를 만듭니다. 여기서 서버를 설정하기 위해 HttpServer 클래스의 연쇄형 API를 만듭니다. 포트를 선언하고 ReactorHttpHandler의 인스턴스를 배치한 후, 3.3 bind를 호출해 서버 엔진을 시작합니다. 마지막으로 응용 프로그램을 활성화 상태로 유지하기 위해 메인 스레드를 차단하고 3.4에서 생성된 서버의 종료 이벤트를 수신 대기 합니다.
+4. routes 메서드를 선언합니다.
+5. 주소의 post 메서드에 대한 요청을 처리하는 라우트 매핑 로직입니다. 여기서 bodyToMono 메서드를 이용해 입력 받은 요청을 매핑합니다. 그런 다음. 본물이 변환되면 PasswordEncoder 인스턴스를 사용해 인코딩된 암호와 원시 암호를 비교합니다. (여기서는 18회 해시 변환 과정을 거치는 강력한 Bcrypt 알고리즘을 사용합니다.) 이 알고리증은 인코딩과 매칭 과정에 약간의 시간이 필요합니다. 마지막으로 저장된 암호와 일치하면 200 아니면 417을 반환합니다.
+
+위 예제는 전체 스프링 프레임워크 인프라를 실행하지 않고도 웹 애플리케이션을 얼마나 쉽게 설정할 수 있는 지 보여줍니다. 이렇게 만든 웹 애플리케이션의 장점은 시작 시간이 훨씬 짧다는 것입니다. 함수형 라우트 선언으로 변경한 라우팅 선언 기법을 요약해 보면 모든 라우팅 구성을 한 곳에서 유지 관리하고 입력 요청을 리액티브 방식으로 처리합니다. 이와 동시에 들어오는 요청 매개변수, 경로 변수 및 요청의 다른 중요한 구성 요소에 액세스하는 측면에서 일반적인 애노테이션 기반 접근 방식과 거의 동일한 유연성을 제공합니다.
+
+### WebClient 논블로킹을지원하는 통신 클라이언트
+
+이전 절에서 스프링 웹플러스 모듈의 기본적인 설계와 변경사항에 대해 간략하게 알아봤으며 RouterFunction을 사용한 새로운 함수형 접근법에 대해 살펴봤습니다. 그러나 스프링 웹플럭스에는 또다른 새로운 기능이 있습니다. 가장 중요한 것은 논블로킹 Http 클라이언트인 WebClient가 있습니다.
+
+본질적으로 WebClient는 이전의 RestTemplate의 대체품입니다.  그러나 WebClient에는 리액티브 방식에 더 잘 맞는 함수형 API가 있으며 Flux 또는 Mono와 같은 리액티브 타입에 대한 매핑이 내장돼 있습니다.
+
+대부분의 경우 가장 일반적인 응답 처리는 본문을 처리하는 것이지만 응답 상태, 해더 또는 쿠키를 처리해야 하는 경우도 있습니다. 앞에서 만든 암호확인 서비스를 호출하는 부분을 WebClient API를 사용해 사용자 지정 방식으로 응답 상태를 처리해 봅시다.
+
+```java
+public class DefaultPasswordVerificationService
+        implements PasswordVerificationService {
+
+    final WebClient webClient;
+
+    public DefaultPasswordVerificationService(WebClient.Builder webClientBuilder) {
+        webClient = webClientBuilder
+            .baseUrl("http://localhost:8080")// 2.1
+            .build();
+    }
+
+    @Override
+    public Mono<Void> check(String raw, String encoded) {// 3
+        return webClient
+            .post()// 1
+            .uri("/password")// 3.1
+            .body(BodyInserters.fromPublisher(// 3.2
+                Mono.just(new PasswordDTO(raw, encoded)),
+                PasswordDTO.class
+            ))
+            .exchange()
+            .flatMap(response -> {// 3.4
+                if (response.statusCode().is2xxSuccessful()) {// 3.5
+                    return Mono.empty();
+                }
+                else if (response.statusCode() == EXPECTATION_FAILED) {
+                    return Mono.error(new BadCredentialsException("Invalid credentials"));// 3.6
+                }
+                return Mono.error(new IllegalStateException());
+            });
+    }
+}
+```
+
+1. PasswordVerificationService 인터페이스를 구현합니다.
+2. WebClient 인스턴스를 초기화 합니다. 여기서 하나의 WebClient 인스턴스를 사용하므로 check 메서드를 실행할 때마다 새 클래스를 초기화할 필요가 없다는 점에 유의해야 합니다.  이러한 기술은 WebClient의 새 인스턴스를 초기화할 필요성을 줄이고 메서드의 실행 시간을 줄입니다. 그러나 WebClient의 기본 구현은 리액터 네티 HttpClient를 사용하여 기본적으로 모든 HttpClient 인스턴스 사이의 리소스 풀을 공유하도록 설정돼 있습니다. 따라서새로운 HttpClint 인스턴스를 생성해도 기만큼의 비용은 들지 않습니다. DefaultPasswordVerificationService의 생성자가 호출되면 클라이언트를 설정하기 위해 (2.1)에 표시된 영쇄형 빌더 API를 사용해 WebClient를 초기화 합니다.
+3. check 메서드의 구현입니다. (3.1)에 표시된  POST 요청을 실행하기 위해 webClient 인스턴스를 사용합니다. 또한 body 메서드를 사용해 본문을 보내고(3.2)에서와 같이 BodyInserters#fromPublisher 팩토리 메서드를 사용해 본문을 삽입할 준비를 합니다. 그런 다음 (3.3)에서 Mono<ClientResponse>를 반환하는 exchange 메서드를 실행합니다. 다음으로 (3.4)와 같이 flatMap 연산자를 사용해 응답을 처리합니다. (3.5)와 같이  비밀번호가 성공적으로 검증되면 check 메서드가 Mono.empty()를 반환하고, 417 상태인 경우 BadCredentialsException을 반환할 수도 있습니다.
+
+앞의 예제에서 볼수 있듯이 일반적인 HTTP 응답의 상태 코드, 헤더 쿠키 및 기타 내부를 처리해야하는 경우에 가장 적합한 메서드는 ClientResponse를 반환하는 exchange 메서드입니다.
+
+앞서 언급했듯이 DefaultWebClient는 원격 서버와의 비동기 및 논블로킹 상호 작용을 제공하기 위해 리액터-네티 HttpClient를 사용합니다. 하지만 DefaultWebClient는 기본 Http 클라이언트를 쉽게 변경할 수 있도록 설계됐습니다. 이를 위해 ClientHttpConnector라는 저수준 인터페이스를 통해 HTTP 커넥션을 감싸고 있습니다. 기본적으로 DefaultWebClient는 ClientHttpConnector의 구현체인 ReactorClientHttpConnector를 사용하도록 설정돼 있습니다. 스프릥 웹 플럭스 5.1 제티의 리액티브 HttpClient를 사용하는 JettyClientHttpConnector 구현이 있습니다.  유용한 추상 레이어 외에 ClientHttpConnector는 그 자체로도 사용할 수 있습니다. 예를 들어 대용량 파일 다운로드, 즉석 처리 또는 간단한 바이트 스캔에 사용할 수 있습니다.
