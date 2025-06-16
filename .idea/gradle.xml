@@ -17,6 +17,7 @@
             <option value="$PROJECT_DIR$/chapter-05" />
             <option value="$PROJECT_DIR$/chapter-06/functional-spring-boot" />
             <option value="$PROJECT_DIR$/chapter-06/samples" />
+            <option value="$PROJECT_DIR$/chapter-06/security-samples" />
           </set>
         </option>
       </GradleProjectSettings>
