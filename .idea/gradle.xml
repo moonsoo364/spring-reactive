@@ -18,6 +18,8 @@
             <option value="$PROJECT_DIR$/chapter-06/functional-spring-boot" />
             <option value="$PROJECT_DIR$/chapter-06/samples" />
             <option value="$PROJECT_DIR$/chapter-06/security-samples" />
+            <option value="$PROJECT_DIR$/chapter-07/s-01-jdbc" />
+            <option value="$PROJECT_DIR$/chapter-07/s-02-jpa" />
           </set>
         </option>
       </GradleProjectSettings>
