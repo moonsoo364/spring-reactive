@@ -16,31 +16,31 @@ import static reactor.function.TupleUtils.function;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class RxBookPublishingYearUpdatedExample {
+public class RxBookPublishingYearUpdatedExampleDo {
    private final BookSpringDataMongoRxRepository rxBookRepository;
 
-   public void updatedBookYearByTitle() {
-      Instant start = now();
-      Mono<String> title = Mono
-         .delay(Duration.ofSeconds(1))
-         .thenReturn("Artemis")
-         .doOnSubscribe(s -> log.info("Subscribed for title"))
-         .doOnNext(t -> log.info("Book title resolved: {}" , t));
-
-       Mono<Integer> publishingYear = Mono
-         .delay(Duration.ofSeconds(2))
-         .thenReturn(2017)
-         .doOnSubscribe(s -> log.info("Subscribed for publishing year"))
-         .doOnNext(t -> log.info("New publishing year resolved: {}" , t));
-
-      updatedBookYearByTitle(title, publishingYear)
-         .doOnNext(b -> log.info("Publishing year updated for the book: {}", b))
-         .hasElement()
-         .doOnSuccess(status -> log.info("Updated finished {}, took: {}",
-            status ? "successfully" : "unsuccessfully",
-            between(start, now())))
-         .subscribe();
-   }
+//   public void updatedBookYearByTitle() {
+//      Instant start = now();
+//      Mono<String> title = Mono
+//         .delay(Duration.ofSeconds(1))
+//         .thenReturn("Artemis")
+//         .doOnSubscribe(s -> log.info("Subscribed for title"))
+//         .doOnNext(t -> log.info("Book title resolved: {}" , t));
+//
+//       Mono<Integer> publishingYear = Mono
+//         .delay(Duration.ofSeconds(2))
+//         .thenReturn(2017)
+//         .doOnSubscribe(s -> log.info("Subscribed for publishing year"))
+//         .doOnNext(t -> log.info("New publishing year resolved: {}" , t));
+//
+//      updatedBookYearByTitle(title, publishingYear)
+//         .doOnNext(b -> log.info("Publishing year updated for the book: {}", b))
+//         .hasElement()
+//         .doOnSuccess(status -> log.info("Updated finished {}, took: {}",
+//            status ? "successfully" : "unsuccessfully",
+//            between(start, now())))
+//         .subscribe();
+//   }
 
    private enum Solution {
       NAIVE_1,
