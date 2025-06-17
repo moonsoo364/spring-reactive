@@ -28,8 +28,8 @@ public class RxBookPublishingYearUpdatedExample {
          .doOnNext(t -> log.info("Book title resolved: {}" , t));
 
        Mono<Integer> publishingYear = Mono
-         .delay(Duration.ofSeconds(2))
-         .thenReturn(2017)
+         .delay(Duration.ofSeconds(1))
+         .thenReturn(2018)
          .doOnSubscribe(s -> log.info("Subscribed for publishing year"))
          .doOnNext(t -> log.info("New publishing year resolved: {}" , t));
 
@@ -53,7 +53,7 @@ public class RxBookPublishingYearUpdatedExample {
       FINAL
    }
 
-   private final Solution solution = Solution.FINAL;
+   private final Solution solution = Solution.ZIP_TUPLE;
 
    public Mono<Book> updatedBookYearByTitle(
       Mono<String> title,
