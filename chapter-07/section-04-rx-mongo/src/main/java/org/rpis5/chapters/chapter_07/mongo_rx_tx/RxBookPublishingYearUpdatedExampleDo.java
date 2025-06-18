@@ -92,6 +92,18 @@ public class RxBookPublishingYearUpdatedExampleDo {
                return rxBookRepository.save(book);
             }));
    }
+   private Mono<Book> updatedBookYearByTitle_d_1(
+           Mono<String> title,
+           Mono<Integer> newPublishingYear
+   ){
+       return rxBookRepository.findOneByTitle(title)
+               .flatMap(book -> newPublishingYear
+                       .flatMap(year -> {
+                           book.setPublishingYear(year);
+                           return rxBookRepository.save(book);
+                       })
+               );
+   }
 
    private Mono<Book> updatedBookYearByTitle_2(
       Mono<String> title,
@@ -120,6 +132,24 @@ private Mono<Book> updatedBookYearByTitle_3(
                return rxBookRepository.save(book);
             });
       });
+}
+
+private Mono<Book> updatedBookYearByTitle_d_3(
+        Mono<String> title,
+        Mono<Integer> newPublishingYear
+){
+       return Mono.zip(title, newPublishingYear)
+               .flatMap((Tuple2<String, Integer> data) ->{
+                   String titleVal = data.getT1();
+                   Integer yearVal = data.getT2();
+                   return rxBookRepository
+                           .findOneByTitle(Mono.just(titleVal))
+                           .flatMap(book ->{
+                               book.setPublishingYear(yearVal);
+                               return rxBookRepository.save(book);
+                           });
+
+               });
 }
 
    private Mono<Book> updatedBookYearByTitle_3_2(
