@@ -29,6 +29,7 @@
             <option value="$PROJECT_DIR$/chapter-08/cloud-stream" />
             <option value="$PROJECT_DIR$/chapter-08/dataflow/mongodb-processor" />
             <option value="$PROJECT_DIR$/chapter-09" />
+            <option value="$PROJECT_DIR$/chapter-10" />
           </set>
         </option>
       </GradleProjectSettings>
